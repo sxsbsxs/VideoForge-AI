@@ -1211,7 +1211,7 @@ private fun ProcessingWorkspace(
         modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("AI PROCESSING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+        Text("${state.userSettings.processingEngine.title.uppercase()} PROCESSING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
         state.statusMessage?.let { message ->
             Spacer(Modifier.height(12.dp))
             GlassPanel {
@@ -1263,7 +1263,7 @@ private fun ProcessingWorkspace(
         if (state.progressData.isOverheated) {
             Spacer(Modifier.height(12.dp))
             Text(
-                "温度较高。建议暂停任务并让设备冷却；自动暂停需等待视频处理引擎接入。",
+                if (state.userSettings.processingEngine == ProcessingEngine.FFMPEG) "温度较高。FFmpeg 模式会在严重热状态下终止任务，请让设备冷却后重试。" else "温度较高。RIFE AI 会在严重热状态下等待降温。",
                 color = Danger,
                 fontSize = 12.sp
             )
