@@ -126,7 +126,7 @@ object Rife46ModelInstaller {
                 digest.update(buffer, 0, count)
             }
         }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        val actual = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return actual.equals(artifact.gitBlobSha1, ignoreCase = true)
     }
 }
