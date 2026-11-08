@@ -11,6 +11,7 @@ import com.videoforge.ai.nativeengine.Rife46Engine
 import com.videoforge.ai.nativeengine.Rife46Session
 import com.videoforge.ai.nativeengine.RifeComputeBackend
 import com.videoforge.ai.nativeengine.Rife46ModelInstaller
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -139,6 +140,9 @@ class DeviceBenchmarkViewModel(application: Application) : AndroidViewModel(appl
                             }
 
                             val currentThermal = readThermalStatus()
+                            _uiState.update {
+                                it.copy(thermalStatus = currentThermal?.let(::thermalLabel) ?: "系统未提供温度等级")
+                            }
                             if (currentThermal != null && currentThermal >= PowerManager.THERMAL_STATUS_SEVERE) {
                                 results += skipped(test, "温度升高到 ${thermalLabel(currentThermal)}，为保护设备停止后续测试")
                                 tests.dropWhile { it != test }.drop(1).forEach { results += skipped(it, "设备温度保护已停止测试") }
@@ -172,7 +176,9 @@ class DeviceBenchmarkViewModel(application: Application) : AndroidViewModel(appl
                         recommendation = summary
                     )
                 }
-            } catch (error: Exception) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
                 _uiState.update {
                     it.copy(
                         isRunning = false,
