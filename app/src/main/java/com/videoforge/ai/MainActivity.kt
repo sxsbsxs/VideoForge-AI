@@ -15,9 +15,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
 import com.videoforge.ai.processing.VideoProcessingCoordinator
+import com.videoforge.ai.processing.FfmpegProcessingCoordinator
 import com.videoforge.ai.ui.VideoSmoothAIApp
 import com.videoforge.ai.ui.VideoSmoothAITheme
 import com.videoforge.ai.viewmodel.SelectedVideoInfo
+import com.videoforge.ai.viewmodel.ProcessingEngine
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import com.videoforge.ai.viewmodel.VideoProcessViewModel
 import kotlinx.coroutines.CancellationException
@@ -30,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private val processViewModel: VideoProcessViewModel by viewModels()
     private val benchmarkViewModel: DeviceBenchmarkViewModel by viewModels()
     private val processingCoordinator by lazy { VideoProcessingCoordinator(applicationContext) }
+    private val ffmpegCoordinator by lazy { FfmpegProcessingCoordinator(applicationContext) }
     private var processingJob: Job? = null
     private var batteryReceiverRegistered = false
 
@@ -161,13 +164,22 @@ class MainActivity : ComponentActivity() {
         processViewModel.setStatusMessage("准备开始处理…")
         processingJob = lifecycleScope.launch {
             try {
-                val result = processingCoordinator.process(
-                    request = request,
-                    onProgress = { percent, remaining, stage ->
+                val progress: (Float, String, com.videoforge.ai.viewmodel.ProcessingStage) -> Unit =
+                    { percent, remaining, stage ->
                         processViewModel.updateProgress(percent, remaining, stage)
-                    },
-                    onStatus = processViewModel::setStatusMessage
-                )
+                    }
+                val result = when (request.processingEngine) {
+                    ProcessingEngine.RIFE_AI -> processingCoordinator.process(
+                        request = request,
+                        onProgress = progress,
+                        onStatus = processViewModel::setStatusMessage
+                    )
+                    ProcessingEngine.FFMPEG -> ffmpegCoordinator.process(
+                        request = request,
+                        onProgress = progress,
+                        onStatus = processViewModel::setStatusMessage
+                    )
+                }
                 processViewModel.finishProcessing(
                     outputUri = result.outputUri,
                     fileSizeBytes = result.fileSizeBytes,
@@ -189,11 +201,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onPauseTask(shouldPause: Boolean) {
+        if (processViewModel.uiState.value.userSettings.processingEngine == ProcessingEngine.FFMPEG) {
+            processViewModel.setStatusMessage("FFmpeg 模式暂不支持安全暂停；可以取消任务后重新处理。")
+            return
+        }
         processingCoordinator.setPaused(shouldPause)
-        processViewModel.setStatusMessage(
-            if (shouldPause) "已请求暂停，当前帧完成后暂停。"
-            else "继续处理…"
-        )
+        processViewModel.setPaused(shouldPause)
+        processViewModel.setStatusMessage(if (shouldPause) "已暂停，当前帧完成。" else "继续处理…")
     }
 
     private fun onCancelTask() {
