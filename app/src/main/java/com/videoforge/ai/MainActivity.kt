@@ -45,6 +45,9 @@ class MainActivity : ComponentActivity() {
     private val taskPreferences by lazy {
         getSharedPreferences("smoothai_active_task", MODE_PRIVATE)
     }
+    private fun restoredRequest() = VideoProcessingWorker.decodeRequestJson(
+        taskPreferences.getString(VideoProcessingWorker.PREF_REQUEST_JSON, null)
+    )
     private var activeWorkId: UUID? = null
     private var observedWork: LiveData<WorkInfo?>? = null
     private var workObserver: Observer<WorkInfo?>? = null
@@ -238,6 +241,10 @@ class MainActivity : ComponentActivity() {
                     if (requiresNetwork) setRequiredNetworkType(NetworkType.CONNECTED)
                 }.build()
 
+                taskPreferences.edit()
+                    .putString(VideoProcessingWorker.PREF_REQUEST_JSON, VideoProcessingWorker.encodeRequestJson(request))
+                    .apply()
+
                 val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
                     .setInputData(VideoProcessingWorker.encodeRequest(request))
                     .setConstraints(constraints)
@@ -285,9 +292,7 @@ class MainActivity : ComponentActivity() {
         taskPreferences.edit()
             .putString(VideoProcessingWorker.PREF_WORK_ID, info.id.toString())
             .apply()
-        processViewModel.attachActiveRequest(
-            VideoProcessingWorker.decodeRequest(info.inputData)
-        )
+        processViewModel.attachActiveRequest(restoredRequest())
         observeProcessingWork(info.id)
     }
 
@@ -317,9 +322,9 @@ class MainActivity : ComponentActivity() {
             // Rehydrate the original request even if the activity returns after
             // the worker has already finished; history must describe the actual job,
             // not a different video/settings the user may have selected meanwhile.
-            val restoredRequest = VideoProcessingWorker.decodeRequest(info.inputData)
-            if (restoredRequest != null) {
-                processViewModel.attachActiveRequest(restoredRequest)
+            val requestSnapshot = restoredRequest()
+            if (requestSnapshot != null) {
+                processViewModel.attachActiveRequest(requestSnapshot)
             } else if (!info.state.isFinished) {
                 processViewModel.attachActiveRequest(null)
             }
