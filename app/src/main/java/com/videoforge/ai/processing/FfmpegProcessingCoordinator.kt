@@ -61,7 +61,7 @@ class FfmpegProcessingCoordinator(context: Context) {
             onStatus("正在检测 FFmpeg 编码器")
             val encoder = findEncoder(request.videoCodec)
             val durationMs = request.source.durationMs.takeIf { it > 0L }
-                ?: probeDurationMs(inputPath, request.source.isNetworkSource)
+                ?: probeDurationMs(inputPath)
             if (isNetworkPlaylist(inputPath) && durationMs <= 0L) {
                 throw IOException("FFmpeg 只处理有明确时长的 HLS/DASH 点播清单；检测到直播或无法确定时长的清单，已停止以防无限处理。")
             }
@@ -209,7 +209,7 @@ class FfmpegProcessingCoordinator(context: Context) {
         return cacheFile.absolutePath
     }
 
-    private fun probeDurationMs(path: String, isNetwork: Boolean): Long {
+    private fun probeDurationMs(path: String): Long {
         val args = mutableListOf("-v", "error")
         if (isNetworkPlaylist(path)) {
             args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
