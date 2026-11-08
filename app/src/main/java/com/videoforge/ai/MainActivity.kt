@@ -1,7 +1,6 @@
 package com.videoforge.ai
 
-import android.content.Intent
-import.net.Uri
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -94,6 +93,7 @@ fun VideoForgeApp() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingDropdown(label: String, value: String, options: List<String>, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
