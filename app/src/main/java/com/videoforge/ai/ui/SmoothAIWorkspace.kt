@@ -1300,12 +1300,14 @@ private fun VideoComparisonPlayer(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(originalUri))
             prepare()
+            playWhenReady = false
         }
     }
     val processedPlayer = remember(processedUri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(processedUri))
             prepare()
+            playWhenReady = false
         }
     }
 
@@ -1317,42 +1319,90 @@ private fun VideoComparisonPlayer(
     }
 
     var isPlaying by remember { mutableStateOf(false) }
+    var isSeeking by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(1L) }
+    var originalPaneWeight by remember { mutableFloatStateOf(1f) }
 
     LaunchedEffect(originalPlayer, processedPlayer, isPlaying) {
         while (true) {
-            val masterDuration = originalPlayer.duration
-            if (masterDuration > 0L) duration = masterDuration
-            val masterPosition = originalPlayer.currentPosition.coerceAtLeast(0L)
-            currentPosition = masterPosition
-            if (abs(processedPlayer.currentPosition - masterPosition) > 140L && processedPlayer.isCurrentMediaItemSeekable) {
+            val originalDuration = originalPlayer.duration
+            val outputDuration = processedPlayer.duration
+            duration = when {
+                originalDuration > 0L && outputDuration > 0L -> minOf(originalDuration, outputDuration)
+                originalDuration > 0L -> originalDuration
+                outputDuration > 0L -> outputDuration
+                else -> 1L
+            }
+            val masterPosition = originalPlayer.currentPosition.coerceIn(0L, duration)
+            if (!isSeeking) currentPosition = masterPosition
+
+            if (kotlin.math.abs(processedPlayer.currentPosition - masterPosition) > 120L &&
+                processedPlayer.isCurrentMediaItemSeekable && !isSeeking
+            ) {
                 processedPlayer.seekTo(masterPosition)
             }
             originalPlayer.playWhenReady = isPlaying
             processedPlayer.playWhenReady = isPlaying
-            delay(if (isPlaying) 180L else 500L)
+            delay(if (isPlaying) 120L else 350L)
         }
     }
 
     GlassPanel {
         Text("原视频 / AI 结果同步对比", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(
+            "两路视频共享播放、暂停、进度与倍速；拖动下方比例条可调整左右画面宽度。",
+            color = Muted,
+            fontSize = 10.sp
+        )
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ComparisonPlayerTile("原视频", originalPlayer, Modifier.weight(1f))
-            ComparisonPlayerTile("AI 结果", processedPlayer, Modifier.weight(1f))
+            ComparisonPlayerTile(
+                "原视频",
+                originalPlayer,
+                Modifier.weight(originalPaneWeight)
+            )
+            ComparisonPlayerTile(
+                "AI 结果",
+                processedPlayer,
+                Modifier.weight(2f - originalPaneWeight)
+            )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("原片", color = Aurora, fontSize = 10.sp)
+            Slider(
+                value = originalPaneWeight,
+                onValueChange = { originalPaneWeight = it },
+                valueRange = 0.65f..1.35f,
+                modifier = Modifier.weight(1f),
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = Aurora,
+                    activeTrackColor = Aurora,
+                    inactiveTrackColor = Color(0xFF40516B)
+                )
+            )
+            Text("结果", color = Violet, fontSize = 10.sp)
+        }
         Slider(
             value = currentPosition.toFloat().coerceIn(0f, duration.toFloat()),
-            onValueChange = { currentPosition = it.toLong() },
+            onValueChange = {
+                isSeeking = true
+                currentPosition = it.toLong()
+            },
             onValueChangeFinished = {
-                originalPlayer.seekTo(currentPosition)
-                processedPlayer.seekTo(currentPosition)
+                val target = currentPosition.coerceIn(0L, duration)
+                originalPlayer.seekTo(target)
+                processedPlayer.seekTo(target)
+                isSeeking = false
             },
             valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Aurora, activeTrackColor = Aurora)
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = Aurora,
+                activeTrackColor = Aurora,
+                inactiveTrackColor = Color(0xFF40516B)
+            )
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(currentPosition), color = Muted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
@@ -1366,17 +1416,22 @@ private fun VideoComparisonPlayer(
                     processedPlayer.playWhenReady = isPlaying
                 }
             ) {
-                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Aurora)
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Aurora
+                )
             }
-            Text(if (isPlaying) "暂停" else "同步播放", color = Color.White, fontSize = 12.sp)
+            Text(if (isPlaying) "同步暂停" else "同步播放", color = Color.White, fontSize = 12.sp)
             Spacer(Modifier.weight(1f))
             listOf(0.5f, 1f, 1.5f, 2f).forEach { rate ->
                 FilterChip(
                     selected = speed == rate,
                     onClick = {
                         speed = rate
-                        originalPlayer.playbackParameters = PlaybackParameters(rate)
-                        processedPlayer.playbackParameters = PlaybackParameters(rate)
+                        val parameters = PlaybackParameters(rate)
+                        originalPlayer.playbackParameters = parameters
+                        processedPlayer.playbackParameters = parameters
                     },
                     label = { Text("${rate}x") }
                 )
