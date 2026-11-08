@@ -24,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Long-running foreground work. WorkManager persists the request and can restart the worker
@@ -42,27 +43,31 @@ class VideoProcessingWorker(
         try {
             ProcessingRuntime.paused = false
             setForeground(createForegroundInfo())
+            val latestProgress = AtomicReference(0f)
+            val latestEta = AtomicReference("正在准备")
+            val latestStage = AtomicReference(ProcessingStage.Extraction.name)
+            val latestStatus = AtomicReference<String?>(null)
+            fun writeProgress() {
+                runBlocking(Dispatchers.IO) {
+                    val data = Data.Builder()
+                        .putFloat(KEY_PROGRESS, latestProgress.get())
+                        .putString(KEY_ETA, latestEta.get())
+                        .putString(KEY_STAGE, latestStage.get())
+                        .putString(KEY_STATUS, latestStatus.get())
+                        .build()
+                    setProgress(data)
+                }
+            }
             val progressCallback: (Float, String, ProcessingStage) -> Unit =
                 { percent, eta, stage ->
-                    runBlocking(Dispatchers.IO) {
-                        setProgress(
-                            Data.Builder()
-                                .putFloat(KEY_PROGRESS, percent)
-                                .putString(KEY_ETA, eta)
-                                .putString(KEY_STAGE, stage.name)
-                                .build()
-                        )
-                    }
+                    latestProgress.set(percent)
+                    latestEta.set(eta)
+                    latestStage.set(stage.name)
+                    writeProgress()
                 }
             val statusCallback: (String?) -> Unit = { status ->
-                runBlocking(Dispatchers.IO) {
-                    setProgress(
-                        Data.Builder()
-                            .putFloat(KEY_PROGRESS, 0f)
-                            .putString(KEY_STATUS, status)
-                            .build()
-                    )
-                }
+                latestStatus.set(status)
+                writeProgress()
             }
 
             val result = when (request.processingEngine) {
