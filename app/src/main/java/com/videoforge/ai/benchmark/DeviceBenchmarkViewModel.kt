@@ -33,8 +33,7 @@ data class ResolutionBenchmarkResult(
 
 data class DeviceBenchmarkUiState(
     val deviceName: String = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
-    val chipName: String = Build.SOC_MODEL.takeIf { Build.VERSION.SDK_INT >= 31 && it.isNotBlank() }
-        ?: Build.HARDWARE,
+    val chipName: String = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() } ?: Build.HARDWARE else Build.HARDWARE,
     val totalRamMb: Long = 0L,
     val availableRamMb: Long = 0L,
     val vulkanDeviceCount: Int? = null,
@@ -241,6 +240,7 @@ class DeviceBenchmarkViewModel(application: Application) : AndroidViewModel(appl
 
     private fun readMemory(): Pair<Long, Long> {
         val manager = getApplication<Application>().getSystemService(ActivityManager::class.java)
+            ?: return 0L to 0L
         val info = ActivityManager.MemoryInfo()
         manager.getMemoryInfo(info)
         return (info.totalMem / 1_048_576L) to (info.availMem / 1_048_576L)
@@ -248,7 +248,7 @@ class DeviceBenchmarkViewModel(application: Application) : AndroidViewModel(appl
 
     private fun readThermalStatus(): Int? {
         if (Build.VERSION.SDK_INT < 29) return null
-        val manager = getApplication<Application>().getSystemService(PowerManager::class.java)
+        val manager = getApplication<Application>().getSystemService(PowerManager::class.java) ?: return null
         return runCatching { manager.currentThermalStatus }.getOrNull()
     }
 
