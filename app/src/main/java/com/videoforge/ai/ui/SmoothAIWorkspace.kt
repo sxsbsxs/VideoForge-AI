@@ -241,11 +241,7 @@ fun SmoothAIWorkspace(
 
                     VideoPageRoute.History -> HistoryWorkspace(
                         history = state.historyList,
-                        onOpenResult = { item ->
-                            item.outputUri?.let {
-                                processViewModel.setStatusMessage("历史视频：${item.fileName}")
-                            }
-                        }
+                        onOpenResult = processViewModel::openHistoryItem
                     )
 
                     VideoPageRoute.Settings -> SettingsWorkspace(
@@ -302,7 +298,6 @@ fun SmoothAIWorkspace(
                     onStart = {
                         val request = processViewModel.createProcessRequest()
                         if (request != null) {
-                            scope.launch { sheetState.hide() }
                             onStartProcess(request)
                         }
                     }
