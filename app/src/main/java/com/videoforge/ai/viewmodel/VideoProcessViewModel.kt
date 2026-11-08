@@ -74,6 +74,7 @@ data class HistoryItem(
     val id: String = UUID.randomUUID().toString(),
     val thumbnailUri: Uri? = null,
     val fileName: String,
+    val originalUri: Uri? = null,
     val processedAt: Long = System.currentTimeMillis(),
     val outputFps: Int,
     val outputResolution: String,
@@ -285,6 +286,7 @@ class VideoProcessViewModel : ViewModel() {
         val item = HistoryItem(
             thumbnailUri = source.thumbnailUri ?: source.uri,
             fileName = source.fileName,
+            originalUri = source.uri,
             outputFps = settings.targetFps,
             outputResolution = settings.targetResolution.title,
             codec = settings.videoCodec,
@@ -302,6 +304,40 @@ class VideoProcessViewModel : ViewModel() {
                     progressPercent = 100f,
                     estimatedRemainingTime = "已完成",
                     currentStage = ProcessingStage.Completed
+                )
+            )
+        }
+    }
+
+    fun openHistoryItem(item: HistoryItem) {
+        val sourceUri = item.originalUri ?: item.thumbnailUri
+        val source = sourceUri?.let {
+            SelectedVideoInfo(
+                uri = it,
+                fileName = item.fileName,
+                durationMs = 0L,
+                width = 0,
+                height = 0
+            )
+        }
+        val resolution = when (item.outputResolution.uppercase()) {
+            "720P", "720P" -> VideoOutputResolution.HD_720
+            "1080P" -> VideoOutputResolution.FULL_HD_1080
+            "2K", "1440P" -> VideoOutputResolution.QHD_1440
+            "4K", "2160P" -> VideoOutputResolution.UHD_4K
+            else -> VideoOutputResolution.SOURCE
+        }
+        _uiState.update { current ->
+            current.copy(
+                currentTab = MainTab.HOME,
+                currentPage = VideoPageRoute.Result,
+                selectedVideo = source ?: current.selectedVideo,
+                processedOutputUri = item.outputUri,
+                resultFileSizeBytes = item.fileSizeBytes,
+                userSettings = current.userSettings.copy(
+                    targetFps = item.outputFps,
+                    targetResolution = resolution,
+                    videoCodec = item.codec
                 )
             )
         }
