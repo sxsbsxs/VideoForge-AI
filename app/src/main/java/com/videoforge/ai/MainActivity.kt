@@ -14,18 +14,23 @@ import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
+import com.videoforge.ai.processing.VideoProcessingCoordinator
 import com.videoforge.ai.ui.VideoSmoothAIApp
 import com.videoforge.ai.ui.VideoSmoothAITheme
 import com.videoforge.ai.viewmodel.SelectedVideoInfo
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import com.videoforge.ai.viewmodel.VideoProcessViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val processViewModel: VideoProcessViewModel by viewModels()
     private val benchmarkViewModel: DeviceBenchmarkViewModel by viewModels()
+    private val processingCoordinator by lazy { VideoProcessingCoordinator(applicationContext) }
+    private var processingJob: Job? = null
     private var batteryReceiverRegistered = false
 
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -150,24 +155,48 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * UI request integration point. A full MediaCodec decode/RIFE/encode coordinator is not
-     * wired yet, so do not report a successful export until that pipeline is implemented.
-     */
     private fun onStartProcess(request: VideoProcessRequest) {
-        processViewModel.setStatusMessage(
-            "已提交 ${request.targetFrameRate} FPS / ${request.outputResolution.title} / ${request.videoCodec.title} 参数；完整视频解码、插帧和编码管线尚未接入，当前版本不会生成输出文件。"
-        )
+        processingJob?.cancel()
+        processingCoordinator.setPaused(false)
+        processViewModel.setStatusMessage("准备开始处理…")
+        processingJob = lifecycleScope.launch {
+            try {
+                val result = processingCoordinator.process(
+                    request = request,
+                    onProgress = { percent, remaining, stage ->
+                        processViewModel.updateProgress(percent, remaining, stage)
+                    },
+                    onStatus = processViewModel::setStatusMessage
+                )
+                processViewModel.finishProcessing(
+                    outputUri = result.outputUri,
+                    fileSizeBytes = result.fileSizeBytes,
+                    cleanedTempBytes = result.cleanedTempBytes
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                val message = failure.message?.takeIf { it.isNotBlank() }
+                    ?: failure.javaClass.simpleName
+                processViewModel.processingFailed("处理失败：$message")
+            } finally {
+                processingCoordinator.setPaused(false)
+                processingJob = null
+            }
+        }
     }
 
     private fun onPauseTask(shouldPause: Boolean) {
+        processingCoordinator.setPaused(shouldPause)
         processViewModel.setStatusMessage(
-            if (shouldPause) "暂停请求已记录；实际暂停控制需由视频处理引擎接入。"
-            else "继续请求已记录；实际任务恢复需由视频处理引擎接入。"
+            if (shouldPause) "已请求暂停，当前帧完成后暂停。"
+            else "继续处理…"
         )
     }
 
     private fun onCancelTask() {
-        // The processing coordinator will be connected here.
+        processingCoordinator.setPaused(false)
+        processingJob?.cancel()
+        processingJob = null
     }
 }
