@@ -705,6 +705,12 @@ private fun ParameterSheet(
             }
             Spacer(Modifier.height(10.dp))
         }
+
+        Text(
+            "说明：RIFE 4.6 负责 AI 插帧；分辨率调整目前为保持比例的常规缩放，AI 超分尚未接入。",
+            color = Muted,
+            fontSize = 10.sp
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
