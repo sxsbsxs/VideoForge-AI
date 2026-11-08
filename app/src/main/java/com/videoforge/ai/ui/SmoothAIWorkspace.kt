@@ -596,12 +596,16 @@ private fun HomeWorkspace(
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(
-                    onClick = onOpenParameters,
+                    onClick = if (isProcessingActive) onShowProcessing else onOpenParameters,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = BrushlessAurora)
                 ) {
-                    Text("配置参数并开始", color = Night, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (isProcessingActive) "返回正在运行的任务" else "配置参数并开始",
+                        color = Night,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
