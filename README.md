@@ -83,8 +83,8 @@ The coordinator prefers a hardware encoder when it advertises the requested size
 
 Current constraints:
 - RIFE AI exports MP4 only. FFmpeg exports MP4 and MKV. The two engines do not share every feature.
-- RIFE input must be decodable by Android `MediaExtractor` / `MediaCodec`; direct MP4-style network sources may work, but HLS/DASH processing is not supported. ExoPlayer preview support does not guarantee processing support.
-- FFmpeg downloads HTTPS video-file URLs to app-private cache before processing. HLS/DASH manifests and cleartext HTTP are rejected in this mode; HLS remains preview-only.
+- RIFE input must be decodable by Android `MediaExtractor` / `MediaCodec`; progressive MP4-style network sources may work, but HLS/DASH processing is not supported in the RIFE path. ExoPlayer preview support does not guarantee RIFE processing support.
+- FFmpeg downloads HTTPS video-file URLs to app-private cache before processing and can read HTTPS HLS/DASH VOD manifests directly. Live or duration-unknown playlists and cleartext HTTP are rejected. Nested media/key protocols are restricted to HTTPS/TLS/TCP/crypto/data.
 - FFmpeg MP4 output omits subtitles to avoid failing on bitmap subtitle tracks. MKV copies subtitle tracks when FFmpeg and the source support them.
 - Resolution changes use aspect-ratio-preserving conventional scaling; RIFE 4.6 provides frame interpolation, not AI super-resolution. No AI upscaling model is integrated.
 - The RIFE YUV-to-RGB path is SDR-only. HDR / wide-gamut / 10-bit input is rejected rather than silently treated as SDR.
