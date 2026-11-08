@@ -109,6 +109,10 @@ class VideoProcessingCoordinator(context: Context) {
                     val size = outputSize(sourceWidth, sourceHeight, request.outputResolution)
                     val outWidth = size.first
                     val outHeight = size.second
+                    // Run RIFE at the smaller of source/output dimensions. Upscaling to 2K/4K
+                    // is a normal resize after interpolation, not an expensive 4K RIFE pass.
+                    val processingWidth = min(sourceWidth, outWidth).and(-2).coerceAtLeast(2)
+                    val processingHeight = min(sourceHeight, outHeight).and(-2).coerceAtLeast(2)
                     val encoderInfo = findEncoder(
                         request.videoCodec, outWidth, outHeight, request.targetFrameRate
                     )
@@ -255,8 +259,13 @@ class VideoProcessingCoordinator(context: Context) {
                         val input = encoder!!.getInputBuffer(index)
                             ?: throw IOException("编码器输入缓冲区不可用。")
                         input.clear()
+                        val outputRgb = if (processingWidth == outWidth && processingHeight == outHeight) {
+                            rgb
+                        } else {
+                            scaleRgb(rgb, processingWidth, processingHeight, outWidth, outHeight)
+                        }
                         val bytes = rgbToYuv(
-                            rgb, outWidth, outHeight, colorFormat, encoder!!, index, input
+                            outputRgb, outWidth, outHeight, colorFormat, encoder!!, index, input
                         )
                         encoder!!.queueInputBuffer(index, 0, bytes, ptsUs, 0)
                         encodedFrames++
@@ -310,10 +319,13 @@ class VideoProcessingCoordinator(context: Context) {
                                         val height = frame.cropRect.height()
                                         Triple(imageToRgb(frame), width, height)
                                     }
-                                    val rgb = if (decoded.second == outWidth && decoded.third == outHeight) {
+                                    val rgb = if (decoded.second == processingWidth && decoded.third == processingHeight) {
                                         decoded.first
                                     } else {
-                                        scaleRgb(decoded.first, decoded.second, decoded.third, outWidth, outHeight)
+                                        scaleRgb(
+                                            decoded.first, decoded.second, decoded.third,
+                                            processingWidth, processingHeight
+                                        )
                                     }
                                     val pts = bufferInfo.presentationTimeUs.coerceAtLeast(0L)
                                     val previous = previousRgb
@@ -334,7 +346,7 @@ class VideoProcessingCoordinator(context: Context) {
                                                 timestep < 0.001f -> previous
                                                 timestep > 0.999f -> rgb
                                                 else -> rife.interpolate(
-                                                    previous, rgb, outWidth, outHeight, timestep
+                                                    previous, rgb, processingWidth, processingHeight, timestep
                                                 )
                                             }
                                             encodeFrame(frame, nextOutputPts - sourceBasePts)
