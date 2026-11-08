@@ -188,39 +188,91 @@ class MainActivity : ComponentActivity() {
         preparationJob?.cancel()
         ProcessingRuntime.paused = false
         processViewModel.setPaused(false)
-        processViewModel.setStatusMessage("正在检查模型与网络条件…")
+        processViewModel.setStatusMessage("正在检查已有任务…")
 
         preparationJob = lifecycleScope.launch {
-            val modelInstalled = if (request.processingEngine == ProcessingEngine.RIFE_AI) {
-                withContext(Dispatchers.IO) {
-                    Rife46ModelInstaller.isInstalled(applicationContext)
+            try {
+                // Never replace an unfinished conversion just because the user pressed
+                // the home-page start button again. Reattach to that exact WorkManager job.
+                val existingWork = withContext(Dispatchers.IO) {
+                    workManager.getWorkInfosForUniqueWork(VideoProcessingWorker.TAG)
+                        .get()
+                        .firstOrNull { !it.state.isFinished }
                 }
-            } else true
 
-            val requiresNetwork = request.source.isNetworkSource ||
-                (request.processingEngine == ProcessingEngine.RIFE_AI && !modelInstalled)
-            val constraints = Constraints.Builder().apply {
-                if (requiresNetwork) setRequiredNetworkType(NetworkType.CONNECTED)
-            }.build()
+                if (existingWork != null) {
+                    attachToExistingWork(existingWork)
+                    processViewModel.showProcessing()
+                    processViewModel.setStatusMessage("检测到已有任务，已恢复原任务进度，没有重新开始。")
+                    return@launch
+                }
 
-            val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
-                .setInputData(VideoProcessingWorker.encodeRequest(request))
-                .setConstraints(constraints)
-                .addTag(VideoProcessingWorker.TAG)
-                .build()
+                // The previous unique work is finished; remove only its observer/reference.
+                if (activeWorkId != null) clearObservedWork()
 
-            activeWorkId = work.id
-            taskPreferences.edit()
-                .putString(VideoProcessingWorker.PREF_WORK_ID, work.id.toString())
-                .apply()
-            workManager.enqueueUniqueWork(
-                VideoProcessingWorker.TAG,
-                ExistingWorkPolicy.REPLACE,
-                work
-            )
-            preparationJob = null
-            observeProcessingWork(work.id)
+                val modelInstalled = if (request.processingEngine == ProcessingEngine.RIFE_AI) {
+                    withContext(Dispatchers.IO) {
+                        Rife46ModelInstaller.isInstalled(applicationContext)
+                    }
+                } else true
+
+                val requiresNetwork = request.source.isNetworkSource ||
+                    (request.processingEngine == ProcessingEngine.RIFE_AI && !modelInstalled)
+                val constraints = Constraints.Builder().apply {
+                    if (requiresNetwork) setRequiredNetworkType(NetworkType.CONNECTED)
+                }.build()
+
+                val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
+                    .setInputData(VideoProcessingWorker.encodeRequest(request))
+                    .setConstraints(constraints)
+                    .addTag(VideoProcessingWorker.TAG)
+                    .build()
+
+                // KEEP is a second line of defence against accidental replacement.
+                val operation = workManager.enqueueUniqueWork(
+                    VideoProcessingWorker.TAG,
+                    ExistingWorkPolicy.KEEP,
+                    work
+                )
+                withContext(Dispatchers.IO) { operation.result.get() }
+
+                // Resolve the effective unique work ID. If another start raced us,
+                // this will point to the work that WorkManager actually kept.
+                val effectiveWork = withContext(Dispatchers.IO) {
+                    workManager.getWorkInfosForUniqueWork(VideoProcessingWorker.TAG)
+                        .get()
+                        .firstOrNull { !it.state.isFinished }
+                }
+                if (effectiveWork != null) {
+                    attachToExistingWork(effectiveWork)
+                } else {
+                    activeWorkId = work.id
+                    taskPreferences.edit()
+                        .putString(VideoProcessingWorker.PREF_WORK_ID, work.id.toString())
+                        .apply()
+                    observeProcessingWork(work.id)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                processViewModel.processingFailed(
+                    "无法启动或恢复后台任务：${failure.message ?: failure.javaClass.simpleName}"
+                )
+            } finally {
+                preparationJob = null
+            }
         }
+    }
+
+    private fun attachToExistingWork(info: WorkInfo) {
+        activeWorkId = info.id
+        taskPreferences.edit()
+            .putString(VideoProcessingWorker.PREF_WORK_ID, info.id.toString())
+            .apply()
+        processViewModel.attachActiveRequest(
+            VideoProcessingWorker.decodeRequest(info.inputData)
+        )
+        observeProcessingWork(info.id)
     }
 
     private fun observeProcessingWork(id: UUID) {
@@ -228,6 +280,12 @@ class MainActivity : ComponentActivity() {
         val liveData = workManager.getWorkInfoByIdLiveData(id)
         val observer = Observer<WorkInfo?> { info ->
             if (info == null) return@Observer
+
+            if (!info.state.isFinished) {
+                processViewModel.attachActiveRequest(
+                    VideoProcessingWorker.decodeRequest(info.inputData)
+                )
+            }
 
             if (info.state == WorkInfo.State.RUNNING) {
                 val data = info.progress
