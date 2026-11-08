@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -116,7 +115,6 @@ import androidx.media3.ui.PlayerView
 import com.videoforge.ai.R
 import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
 import com.videoforge.ai.benchmark.DeviceBenchmarkUiState
-import com.videoforge.ai.ui.model.*
 import com.videoforge.ai.viewmodel.HistoryItem
 import com.videoforge.ai.viewmodel.MainTab
 import com.videoforge.ai.viewmodel.ProcessingStage
@@ -330,7 +328,6 @@ private fun SmoothBottomNavigation(
         NavigationBar(
             containerColor = Color.Transparent,
             tonalElevation = 0.dp,
-            windowInsets = WindowInsets(0.dp)
         ) {
             items.forEach { (tab, icon, label) ->
                 val active = selected == tab
@@ -1216,8 +1213,8 @@ private fun ResultWorkspace(
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ComparisonPlaceholder("原视频")
-                    ComparisonPlaceholder("AI 结果")
+                    ComparisonPlaceholder("原视频", Modifier.weight(1f))
+                    ComparisonPlaceholder("AI 结果", Modifier.weight(1f))
                 }
             }
         }
@@ -1242,10 +1239,9 @@ private fun ResultMetric(value: String, label: String) {
 }
 
 @Composable
-private fun ComparisonPlaceholder(label: String) {
+private fun ComparisonPlaceholder(label: String, modifier: Modifier = Modifier) {
     Column(
-        Modifier
-            .weight(1f)
+        modifier
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF101B2D))
             .padding(16.dp),
