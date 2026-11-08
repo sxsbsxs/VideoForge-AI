@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
+import com.videoforge.ai.viewmodel.VideoOutputResolution
 import com.videoforge.ai.viewmodel.ProcessingStage
 import com.videoforge.ai.viewmodel.VideoPageRoute
 import com.videoforge.ai.viewmodel.VideoProcessRequest
@@ -50,9 +52,11 @@ fun VideoSmoothAIApp(
     onVideoPicked: (Uri) -> Unit,
     onStartProcess: (VideoProcessRequest) -> Unit,
     onPauseTask: (Boolean) -> Unit,
-    onCancelTask: () -> Unit
+    onCancelTask: () -> Unit,
+    benchmarkViewModel: DeviceBenchmarkViewModel
 ) {
     val state by processViewModel.uiState.collectAsState()
+    val benchmarkState by benchmarkViewModel.uiState.collectAsState()
 
     VideoSmoothAITheme {
         Surface(
@@ -63,12 +67,14 @@ fun VideoSmoothAIApp(
                 VideoPageRoute.Home -> HomeScreen(
                     state = state,
                     onVideoPicked = onVideoPicked,
-                    onNext = processViewModel::openSettings
+                    onNext = processViewModel::openSettings,
+                    onOpenBenchmark = processViewModel::openBenchmark
                 )
                 VideoPageRoute.Settings -> SettingsScreen(
                     state = state,
                     onBack = processViewModel::backToHome,
                     onFrameRateChange = processViewModel::setTargetFrameRate,
+                    onResolutionChange = processViewModel::setOutputResolution,
                     onExtremeHeatModeChange = processViewModel::setExtremeHeatMode,
                     onAutoCleanChange = processViewModel::setAutoCleanFragments,
                     onStartProcess = {
@@ -90,6 +96,11 @@ fun VideoSmoothAIApp(
                 VideoPageRoute.Result -> ResultScreen(
                     onBackHome = processViewModel::backToHome
                 )
+                VideoPageRoute.Benchmark -> DeviceBenchmarkScreen(
+                    state = benchmarkState,
+                    onBack = processViewModel::backToHome,
+                    onRunBenchmark = benchmarkViewModel::runBenchmark
+                )
             }
         }
     }
@@ -99,7 +110,8 @@ fun VideoSmoothAIApp(
 fun HomeScreen(
     state: VideoProcessUiState,
     onVideoPicked: (Uri) -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    onOpenBenchmark: () -> Unit
 ) {
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -186,6 +198,16 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
+        OutlinedButton(
+            onClick = onOpenBenchmark,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Text("设备性能测试")
+        }
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = onNext,
             enabled = state.selectedVideo != null,
@@ -250,6 +272,7 @@ fun SettingsScreen(
     state: VideoProcessUiState,
     onBack: () -> Unit,
     onFrameRateChange: (Int) -> Unit,
+    onResolutionChange: (VideoOutputResolution) -> Unit,
     onExtremeHeatModeChange: (Boolean) -> Unit,
     onAutoCleanChange: (Boolean) -> Unit,
     onStartProcess: () -> Unit
@@ -270,7 +293,7 @@ fun SettingsScreen(
         Text("目标帧率", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf(60, 120).forEach { fps ->
+            listOf(30, 60, 90, 120).forEach { fps ->
                 FilterChip(
                     selected = state.targetFrameRate == fps,
                     onClick = { onFrameRateChange(fps) },
@@ -282,7 +305,41 @@ fun SettingsScreen(
                 )
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
+        Text("输出分辨率", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                VideoOutputResolution.SOURCE,
+                VideoOutputResolution.HD_720,
+                VideoOutputResolution.FULL_HD_1080
+            ).forEach { resolution ->
+                FilterChip(
+                    selected = state.outputResolution == resolution,
+                    onClick = { onResolutionChange(resolution) },
+                    label = { Text(resolution.title) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(VideoOutputResolution.QHD_1440, VideoOutputResolution.UHD_4K).forEach { resolution ->
+                FilterChip(
+                    selected = state.outputResolution == resolution,
+                    onClick = { onResolutionChange(resolution) },
+                    label = { Text(resolution.title) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.weight(1f))
+        }
+        Text(
+            "保持原视频宽高比；4K/120 FPS 属于高负载选项，建议先完成设备测试。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(20.dp))
         SettingSwitchRow(
             icon = Icons.Default.LocalFireDepartment,
             title = "极速发热模式",
