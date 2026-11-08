@@ -129,6 +129,9 @@ data class VideoProcessUiState(
 }
 
 class VideoProcessViewModel(application: Application) : AndroidViewModel(application) {
+    // Keep the exact request snapshot so browsing Home/Settings during background work
+    // cannot change the metadata written to the completed history item.
+    private var activeRequestSnapshot: VideoProcessRequest? = null
     private val preferences = application.getSharedPreferences("smoothai_persistent_state", Context.MODE_PRIVATE)
     private val restored = restorePersistentState()
     private val _uiState = MutableStateFlow(
@@ -212,6 +215,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun restoreActiveProcessing() {
+        activeRequestSnapshot = request
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
@@ -320,42 +324,44 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
 
     fun finishProcessing(outputUri: Uri, fileSizeBytes: Long, cleanedTempBytes: Long = 0L) {
         val current = _uiState.value
-        val source = current.selectedVideo ?: return
+        val request = activeRequestSnapshot
+        val source = request?.source ?: current.selectedVideo ?: return
         val settings = current.userSettings
+        val wasViewingTask = current.currentPage == VideoPageRoute.Processing
         val item = HistoryItem(
             thumbnailUri = source.thumbnailUri ?: source.uri,
             fileName = source.fileName,
             originalUri = source.uri,
-            outputFps = settings.targetFps,
-            outputResolution = settings.targetResolution.title,
-            codec = settings.videoCodec,
+            outputFps = request?.targetFrameRate ?: settings.targetFps,
+            outputResolution = (request?.outputResolution ?: settings.targetResolution).title,
+            codec = request?.videoCodec ?: settings.videoCodec,
             fileSizeBytes = fileSizeBytes,
             outputUri = outputUri,
-            processingEngine = settings.processingEngine,
-            container = settings.container
+            processingEngine = request?.processingEngine ?: settings.processingEngine,
+            container = request?.container ?: settings.container
         )
         val newHistory = listOf(item) + current.historyList
-        _uiState.update {
-            it.copy(
-                currentPage = if (current.currentPage == VideoPageRoute.Processing) {
-                    VideoPageRoute.Result
-                } else current.currentPage,
-                statusMessage = if (current.currentPage == VideoPageRoute.Processing) {
-                    current.statusMessage
+        _uiState.update { state ->
+            state.copy(
+                currentPage = if (wasViewingTask) VideoPageRoute.Result else state.currentPage,
+                statusMessage = if (wasViewingTask) {
+                    state.statusMessage
                 } else {
                     "处理已完成，视频已保存到记录。"
                 },
-                processedOutputUri = outputUri,
-                resultFileSizeBytes = fileSizeBytes,
-                cleanedTempBytes = cleanedTempBytes,
+                selectedVideo = if (wasViewingTask) source else state.selectedVideo,
+                processedOutputUri = if (wasViewingTask) outputUri else state.processedOutputUri,
+                resultFileSizeBytes = if (wasViewingTask) fileSizeBytes else state.resultFileSizeBytes,
+                cleanedTempBytes = if (wasViewingTask) cleanedTempBytes else state.cleanedTempBytes,
                 historyList = newHistory,
-                progressData = it.progressData.copy(
+                progressData = state.progressData.copy(
                     progressPercent = 100f,
                     estimatedRemainingTime = "已完成",
                     currentStage = ProcessingStage.Completed
                 )
             )
         }
+        activeRequestSnapshot = null
         persistHistory(newHistory)
     }
 
@@ -418,6 +424,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun cancelCurrentTask() {
+        activeRequestSnapshot = null
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
@@ -433,6 +440,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun processingFailed(message: String) {
+        activeRequestSnapshot = null
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
