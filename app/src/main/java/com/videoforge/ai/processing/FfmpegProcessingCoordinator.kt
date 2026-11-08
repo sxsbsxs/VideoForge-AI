@@ -60,7 +60,7 @@ class FfmpegProcessingCoordinator(context: Context) {
             val args = mutableListOf(
                 "-hide_banner", "-y", "-i", inputPath,
                 "-map", "0:v:0", "-map_metadata", "0", "-map_chapters", "0",
-                "-vf", filter, "-c:v", encoder, "-b:v", "${{request.bitrateMbps}M",
+                "-vf", filter, "-c:v", encoder, "-b:v", "${request.bitrateMbps}M",
                 "-pix_fmt", "yuv420p", "-fps_mode", "cfr", "-max_muxing_queue_size", "4096"
             )
             if (request.preserveAudio) {
@@ -76,7 +76,7 @@ class FfmpegProcessingCoordinator(context: Context) {
             }
             args += outputTemp.absolutePath
 
-            onStatus("FFmpeg · $encoder · ${{request.targetFrameRate} FPS · ${{request.container.title}")
+            onStatus("FFmpeg · $encoder · ${request.targetFrameRate} FPS · ${request.container.title}")
             onProgress(4f, "正在运动估算插帧与编码", ProcessingStage.Interpolation)
             runFfmpeg(args, durationMs, request.isSafeThermal, onProgress, onStatus)
             if (!outputTemp.isFile || outputTemp.length() <= 0L) {
@@ -118,13 +118,13 @@ class FfmpegProcessingCoordinator(context: Context) {
                 "-of", "default=noprint_wrappers=1:nokey=1", path)
         )
         if (!ReturnCode.isSuccess(session.returnCode)) return 0L
-        return session.output?.trim()?.toDoubleOrNull()?.times(1000.0)?.toLong()?.coerceAtLeast(0L) ?: 0L
+        return session.getOutput()?.trim()?.toDoubleOrNull()?.times(1000.0)?.toLong()?.coerceAtLeast(0L) ?: 0L
     }
 
     private fun findEncoder(codec: VideoCodec): String {
         val session = FFmpegKit.executeWithArguments(arrayOf("-hide_banner", "-encoders"))
         if (!ReturnCode.isSuccess(session.returnCode)) {
-            throw IOException("无法读取 FFmpeg 编码器列表：${{session.failStackTrace ?: session.output.orEmpty()}")
+            throw IOException("无法读取 FFmpeg 编码器列表：${session.getFailStackTrace() ?: session.output.orEmpty()}")
         }
         val lines = session.output.orEmpty().lineSequence().map { it.trim() }.toList()
         val candidates = when (codec) {
@@ -134,7 +134,7 @@ class FfmpegProcessingCoordinator(context: Context) {
         }
         return candidates.firstOrNull { name -> lines.any { it.split(Regex("\\s+")).contains(name) } }
             ?: throw IOException(
-                "当前 FFmpeg 构建没有找到 ${{codec.title} 编码器。尝试格式：${{candidates.joinToString()}。"
+                "当前 FFmpeg 构建没有找到 ${codec.title} 编码器。尝试格式：${candidates.joinToString()}。"
             )
     }
 
@@ -171,19 +171,19 @@ class FfmpegProcessingCoordinator(context: Context) {
                     thermalAbort.get() -> continuation.resumeWithException(
                         IllegalStateException("温控保护已终止 FFmpeg 任务；设备冷却后可以重新处理。")
                     )
-                    ReturnCode.isSuccess(completed.returnCode) -> continuation.resume(Unit)
+                    ReturnCode.isSuccess(completed.getReturnCode()) -> continuation.resume(Unit)
                     ReturnCode.isCancel(completed.returnCode) -> continuation.resumeWithException(
                         CancellationException("FFmpeg 任务已取消。")
                     )
                     else -> {
-                        val detail = completed.failStackTrace?.takeIf { it.isNotBlank() }
+                        val detail = completed.getFailStackTrace()?.takeIf { it.isNotBlank() }
                             ?: logs.toList().takeLast(8).joinToString("\n")
-                        continuation.resumeWithException(IOException("FFmpeg 处理失败：${{detail.takeLast(1600)}"))
+                        continuation.resumeWithException(IOException("FFmpeg 处理失败：${detail.takeLast(1600)}"))
                     }
                 }
             },
             { log ->
-                val line = log.message?.trim().orEmpty()
+                val line = log.getMessage()?.trim().orEmpty()
                 if (line.isNotBlank()) {
                     synchronized(logs) {
                         if (logs.size >= 40) logs.removeFirst()
@@ -196,23 +196,23 @@ class FfmpegProcessingCoordinator(context: Context) {
                 if (!continuation.isActive) return@executeWithArgumentsAsync
                 if (thermalProtection && isSevereThermal()) {
                     thermalAbort.set(true)
-                    sessionRef.get()?.let { FFmpegKit.cancel(it.sessionId) }
+                    sessionRef.get()?.let { FFmpegKit.cancel(it.getSessionId()) }
                     onStatus("设备温度过高，FFmpeg 任务已触发温控停止。")
                     return@executeWithArgumentsAsync
                 }
-                val timeMs = stats.time.toLong().coerceAtLeast(0L)
+                val timeMs = stats.getTime().toLong().coerceAtLeast(0L)
                 val fraction = if (durationMs > 0L) (timeMs.toDouble() / durationMs).coerceIn(0.0, 0.99) else 0.0
                 val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(1L)
                 val remain = if (fraction > 0.01) (elapsed * (1.0 - fraction) / fraction / 1000.0).toLong() else -1L
                 val eta = if (remain < 0L) "FFmpeg 正在处理"
-                    else if (remain >= 60L) "预计剩余 ${{remain / 60}分${{remain % 60}秒"
-                    else "预计剩余 ${{remain}秒"
+                    else if (remain >= 60L) "预计剩余 ${remain / 60}分${remain % 60}秒"
+                    else "预计剩余 ${remain}秒"
                 val percent = if (durationMs > 0L) (4.0 + fraction * 90.0).toFloat() else 4f
                 onProgress(percent, eta, ProcessingStage.Interpolation)
             }
         )
         sessionRef.set(session)
-        continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
+        continuation.invokeOnCancellation { FFmpegKit.cancel(session.getSessionId()) }
     }
 
     private fun cleanStaleCacheFiles(): Long {
@@ -239,7 +239,7 @@ class FfmpegProcessingCoordinator(context: Context) {
         val mime = if (mkv) "video/x-matroska" else "video/mp4"
         val base = sourceName.substringBeforeLast('.', sourceName)
             .replace(Regex("[^A-Za-z0-9._-]"), "_").take(40).ifBlank { "video" }
-        val name = "${{base}_SmoothAI_${{System.currentTimeMillis()}.$ext"
+        val name = "${base}_SmoothAI_${System.currentTimeMillis()}.$ext"
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, name)
