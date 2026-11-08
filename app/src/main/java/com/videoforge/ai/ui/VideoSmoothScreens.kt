@@ -136,7 +136,7 @@ fun HomeScreen(
                         0f
                     )
                     drawRoundRect(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                        color = dashedOutlineColor.copy(alpha = 0.8f),
                         style = Stroke(width = 1.8.dp.toPx(), pathEffect = dash),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(26.dp.toPx())
                     )
@@ -367,6 +367,8 @@ fun ProcessingScreen(
             modifier = Modifier.size(264.dp),
             contentAlignment = Alignment.Center
         ) {
+            val trackColor = MaterialTheme.colorScheme.surfaceVariant
+            val progressColor = MaterialTheme.colorScheme.primary
             Canvas(Modifier.fillMaxSize()) {
                 val strokeWidth = 18.dp.toPx()
                 val inset = strokeWidth / 2f
@@ -375,7 +377,7 @@ fun ProcessingScreen(
                     height = size.height - strokeWidth
                 )
                 drawArc(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    color = trackColor,
                     startAngle = -90f,
                     sweepAngle = 360f,
                     useCenter = false,
@@ -384,7 +386,7 @@ fun ProcessingScreen(
                     style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                 )
                 drawArc(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = progressColor,
                     startAngle = -90f,
                     sweepAngle = 360f * progress / 100f,
                     useCenter = false,
