@@ -64,6 +64,7 @@ class VideoProcessingCoordinator(context: Context) {
         require(request.targetFrameRate in 30..120) { "目标帧率必须在 30–120 FPS 之间。" }
 
         val startedAt = SystemClock.elapsedRealtime()
+        val cleanedStaleBytes = if (request.autoCleanFragments) cleanStaleCacheFiles() else 0L
         val temp = File(app.cacheDir, "smoothai_${System.currentTimeMillis()}.mp4")
         var published: Uri? = null
 
@@ -449,7 +450,7 @@ class VideoProcessingCoordinator(context: Context) {
             val cleanedBytes = if (temp.delete()) tempSize else 0L
             onProgress(100f, "已完成", ProcessingStage.Completed)
             onStatus(null)
-            VideoProcessResult(published!!, outputSize, cleanedBytes)
+            VideoProcessResult(published!!, outputSize, cleanedBytes + cleanedStaleBytes)
         } catch (cancelled: CancellationException) {
             published?.let { runCatching { app.contentResolver.delete(it, null, null) } }
             throw cancelled
@@ -459,6 +460,18 @@ class VideoProcessingCoordinator(context: Context) {
         } finally {
             temp.delete()
         }
+    }
+
+    private fun cleanStaleCacheFiles(): Long {
+        val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+        var removedBytes = 0L
+        app.cacheDir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("smoothai_") && it.lastModified() < cutoff }
+            ?.forEach { file ->
+                val size = file.length()
+                if (file.delete()) removedBytes += size
+            }
+        return removedBytes
     }
 
     private suspend fun waitUntilSafe(thermalProtection: Boolean, onStatus: (String?) -> Unit) {
