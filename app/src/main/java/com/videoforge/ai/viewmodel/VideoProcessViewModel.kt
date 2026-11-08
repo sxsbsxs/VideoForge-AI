@@ -7,7 +7,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class VideoPageRoute { Home, Settings, Processing, Result }
+enum class VideoPageRoute { Home, Settings, Processing, Result, Benchmark }
+
+enum class VideoOutputResolution(val title: String) {
+    SOURCE("原始分辨率"),
+    HD_720("720p"),
+    FULL_HD_1080("1080p"),
+    QHD_1440("1440p"),
+    UHD_4K("4K")
+}
 enum class ProcessingStage { Extraction, Interpolation, Encoding, Completed }
 
 data class SelectedVideoInfo(
@@ -25,6 +33,7 @@ data class SelectedVideoInfo(
 data class VideoProcessRequest(
     val source: SelectedVideoInfo,
     val targetFrameRate: Int,
+    val outputResolution: VideoOutputResolution,
     val isExtremeHeatMode: Boolean,
     val autoCleanFragments: Boolean
 )
@@ -33,6 +42,7 @@ data class VideoProcessUiState(
     val currentPage: VideoPageRoute = VideoPageRoute.Home,
     val selectedVideo: SelectedVideoInfo? = null,
     val targetFrameRate: Int = 60,
+    val outputResolution: VideoOutputResolution = VideoOutputResolution.SOURCE,
     val isExtremeHeatMode: Boolean = false,
     val autoCleanFragments: Boolean = true,
     val progressPercent: Float = 0f,
@@ -58,10 +68,18 @@ class VideoProcessViewModel : ViewModel() {
         _uiState.update { it.copy(currentPage = VideoPageRoute.Home) }
     }
 
+    fun openBenchmark() {
+        _uiState.update { it.copy(currentPage = VideoPageRoute.Benchmark) }
+    }
+
     fun setTargetFrameRate(value: Int) {
-        if (value == 60 || value == 120) {
+        if (value in setOf(30, 60, 90, 120)) {
             _uiState.update { it.copy(targetFrameRate = value) }
         }
+    }
+
+    fun setOutputResolution(value: VideoOutputResolution) {
+        _uiState.update { it.copy(outputResolution = value) }
     }
 
     fun setExtremeHeatMode(enabled: Boolean) {
@@ -79,6 +97,7 @@ class VideoProcessViewModel : ViewModel() {
         val request = VideoProcessRequest(
             source = source,
             targetFrameRate = current.targetFrameRate,
+            outputResolution = current.outputResolution,
             isExtremeHeatMode = current.isExtremeHeatMode,
             autoCleanFragments = current.autoCleanFragments
         )
