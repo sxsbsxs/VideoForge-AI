@@ -142,6 +142,15 @@ class VideoProcessingWorker(
             cancelIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val openAppIntent = Intent(applicationContext, com.videoforge.ai.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openAppPendingIntent = PendingIntent.getActivity(
+            applicationContext,
+            7408,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("SmoothAI 正在处理视频")
@@ -149,6 +158,7 @@ class VideoProcessingWorker(
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setContentIntent(openAppPendingIntent)
             .setProgress(100, percent?.coerceIn(0, 100) ?: 0, percent == null)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
