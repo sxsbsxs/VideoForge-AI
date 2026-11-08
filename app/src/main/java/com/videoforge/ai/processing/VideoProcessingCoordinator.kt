@@ -263,18 +263,15 @@ class VideoProcessingCoordinator(context: Context) {
                                 ) {
                                     val image = decoder!!.getOutputImage(outputIndex)
                                         ?: throw IOException("解码器未提供 YUV 图像；当前解码器输出格式不兼容。")
-                                    val rgb: ByteArray
-                                    val decodedWidth: Int
-                                    val decodedHeight: Int
-                                    image.use {
-                                        decodedWidth = it.cropRect.width()
-                                        decodedHeight = it.cropRect.height()
-                                        val decodedRgb = imageToRgb(it)
-                                        rgb = if (decodedWidth == outWidth && decodedHeight == outHeight) {
-                                            decodedRgb
-                                        } else {
-                                            scaleRgb(decodedRgb, decodedWidth, decodedHeight, outWidth, outHeight)
-                                        }
+                                    val decoded = image.use { frame ->
+                                        val width = frame.cropRect.width()
+                                        val height = frame.cropRect.height()
+                                        Triple(imageToRgb(frame), width, height)
+                                    }
+                                    val rgb = if (decoded.second == outWidth && decoded.third == outHeight) {
+                                        decoded.first
+                                    } else {
+                                        scaleRgb(decoded.first, decoded.second, decoded.third, outWidth, outHeight)
                                     }
                                     val pts = bufferInfo.presentationTimeUs.coerceAtLeast(0L)
                                     val previous = previousRgb
@@ -327,7 +324,17 @@ class VideoProcessingCoordinator(context: Context) {
                     }
 
                     val finalFrame = previousRgb ?: throw IOException("源视频没有解码出画面。")
-                    if (encodedFrames == 0L) encodeFrame(finalFrame, 0L)
+                    if (encodedFrames == 0L) {
+                        encodeFrame(finalFrame, 0L)
+                        nextOutputPts = sourceBasePts + intervalUs
+                    }
+                    // Extend the final decoded frame to the source duration so the output
+                    // has a complete constant-frame-rate timeline instead of ending early.
+                    val endPtsUs = sourceBasePts + durationUs
+                    while (nextOutputPts < endPtsUs) {
+                        encodeFrame(finalFrame, nextOutputPts - sourceBasePts)
+                        nextOutputPts += intervalUs
+                    }
                     onProgress(94f, "正在完成编码", ProcessingStage.Encoding)
 
                     var eosQueued = false
@@ -490,14 +497,28 @@ class VideoProcessingCoordinator(context: Context) {
         if (sourceW == targetW && sourceH == targetH) return input
         val output = ByteArray(targetW * targetH * 3)
         for (y in 0 until targetH) {
-            val sy = (y.toLong() * sourceH / targetH).toInt().coerceAtMost(sourceH - 1)
+            val fy = (((y + 0.5f) * sourceH / targetH) - 0.5f).coerceIn(0f, (sourceH - 1).toFloat())
+            val y0 = fy.toInt()
+            val y1 = min(y0 + 1, sourceH - 1)
+            val wy = fy - y0
             for (x in 0 until targetW) {
-                val sx = (x.toLong() * sourceW / targetW).toInt().coerceAtMost(sourceW - 1)
-                val src = (sy * sourceW + sx) * 3
+                val fx = (((x + 0.5f) * sourceW / targetW) - 0.5f).coerceIn(0f, (sourceW - 1).toFloat())
+                val x0 = fx.toInt()
+                val x1 = min(x0 + 1, sourceW - 1)
+                val wx = fx - x0
+                val p00 = (y0 * sourceW + x0) * 3
+                val p10 = (y0 * sourceW + x1) * 3
+                val p01 = (y1 * sourceW + x0) * 3
+                val p11 = (y1 * sourceW + x1) * 3
                 val dst = (y * targetW + x) * 3
-                output[dst] = input[src]
-                output[dst + 1] = input[src + 1]
-                output[dst + 2] = input[src + 2]
+                for (channel in 0..2) {
+                    val top = (input[p00 + channel].toInt() and 255) * (1f - wx) +
+                        (input[p10 + channel].toInt() and 255) * wx
+                    val bottom = (input[p01 + channel].toInt() and 255) * (1f - wx) +
+                        (input[p11 + channel].toInt() and 255) * wx
+                    output[dst + channel] = (top * (1f - wy) + bottom * wy).roundToInt()
+                        .coerceIn(0, 255).toByte()
+                }
             }
         }
         return output
