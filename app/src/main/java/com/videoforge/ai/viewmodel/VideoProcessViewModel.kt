@@ -283,7 +283,7 @@ class VideoProcessViewModel : ViewModel() {
         val source = current.selectedVideo ?: return
         val settings = current.userSettings
         val item = HistoryItem(
-            thumbnailUri = source.thumbnailUri,
+            thumbnailUri = source.thumbnailUri ?: source.uri,
             fileName = source.fileName,
             outputFps = settings.targetFps,
             outputResolution = settings.targetResolution.title,
