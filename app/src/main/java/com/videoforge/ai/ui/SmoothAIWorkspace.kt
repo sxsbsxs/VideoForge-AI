@@ -757,10 +757,12 @@ private fun ParameterSheet(
         Text("封装格式", color = Color.White, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             VideoContainer.entries.forEach { container ->
+                val supported = container == VideoContainer.MP4
                 FilterChip(
                     selected = settings.container == container,
+                    enabled = supported,
                     onClick = { onSettingsChanged(settings.copy(container = container)) },
-                    label = { Text(container.title) }
+                    label = { Text(if (supported) container.title else "MKV（待支持）") }
                 )
             }
         }
