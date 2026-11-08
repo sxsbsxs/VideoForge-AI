@@ -203,6 +203,7 @@ class VideoProcessingWorker(
     companion object {
         const val TAG = "smoothai_video_processing"
         const val PREF_WORK_ID = "active_processing_work_id"
+        const val PREF_REQUEST_JSON = "active_processing_request_json"
 
         const val KEY_URI = "source_uri"
         const val KEY_NAME = "source_name"
@@ -252,6 +253,49 @@ class VideoProcessingWorker(
                 .putBoolean(KEY_AUDIO, request.preserveAudio)
                 .putString(KEY_ENGINE, request.processingEngine.name)
                 .build()
+
+        fun encodeRequestJson(request: VideoProcessRequest): String =
+            org.json.JSONObject().apply {
+                put(KEY_URI, request.source.uri.toString())
+                put(KEY_NAME, request.source.fileName)
+                put(KEY_DURATION, request.source.durationMs)
+                put(KEY_WIDTH, request.source.width)
+                put(KEY_HEIGHT, request.source.height)
+                put(KEY_FPS, request.source.originalFrameRate ?: -1f)
+                put(KEY_NETWORK, request.source.isNetworkSource)
+                put(KEY_TARGET_FPS, request.targetFrameRate)
+                put(KEY_RESOLUTION, request.outputResolution.name)
+                put(KEY_CODEC, request.videoCodec.name)
+                put(KEY_CONTAINER, request.container.name)
+                put(KEY_BITRATE, request.bitrateMbps)
+                put(KEY_THERMAL, request.isSafeThermal)
+                put(KEY_AUTO_CLEAN, request.autoCleanFragments)
+                put(KEY_AUDIO, request.preserveAudio)
+                put(KEY_ENGINE, request.processingEngine.name)
+            }.toString()
+
+        fun decodeRequestJson(json: String?): VideoProcessRequest? = runCatching {
+            val value = org.json.JSONObject(json ?: error("missing saved request"))
+            val data = Data.Builder()
+                .putString(KEY_URI, value.getString(KEY_URI))
+                .putString(KEY_NAME, value.optString(KEY_NAME, "video"))
+                .putLong(KEY_DURATION, value.optLong(KEY_DURATION, 0L))
+                .putInt(KEY_WIDTH, value.optInt(KEY_WIDTH, 0))
+                .putInt(KEY_HEIGHT, value.optInt(KEY_HEIGHT, 0))
+                .putFloat(KEY_FPS, value.optDouble(KEY_FPS, -1.0).toFloat())
+                .putBoolean(KEY_NETWORK, value.optBoolean(KEY_NETWORK, false))
+                .putInt(KEY_TARGET_FPS, value.optInt(KEY_TARGET_FPS, 60))
+                .putString(KEY_RESOLUTION, value.optString(KEY_RESOLUTION, "FULL_HD_1080"))
+                .putString(KEY_CODEC, value.optString(KEY_CODEC, "H264"))
+                .putString(KEY_CONTAINER, value.optString(KEY_CONTAINER, "MP4"))
+                .putInt(KEY_BITRATE, value.optInt(KEY_BITRATE, 16))
+                .putBoolean(KEY_THERMAL, value.optBoolean(KEY_THERMAL, true))
+                .putBoolean(KEY_AUTO_CLEAN, value.optBoolean(KEY_AUTO_CLEAN, true))
+                .putBoolean(KEY_AUDIO, value.optBoolean(KEY_AUDIO, true))
+                .putString(KEY_ENGINE, value.optString(KEY_ENGINE, "RIFE_AI"))
+                .build()
+            decodeRequest(data) ?: error("invalid saved request")
+        }.getOrNull()
 
         fun decodeRequest(data: Data): VideoProcessRequest? = runCatching {
             val sourceUri = Uri.parse(data.getString(KEY_URI) ?: error("missing source uri"))
