@@ -60,11 +60,19 @@ class FfmpegProcessingCoordinator(context: Context) {
             }
             onStatus("正在检测 FFmpeg 编码器")
             val encoder = findEncoder(request.videoCodec)
-            val durationMs = request.source.durationMs.takeIf { it > 0L } ?: probeDurationMs(inputPath)
+            val durationMs = request.source.durationMs.takeIf { it > 0L }
+                ?: probeDurationMs(inputPath, request.source.isNetworkSource)
+            if (isNetworkPlaylist(inputPath) && durationMs <= 0L) {
+                throw IOException("FFmpeg 只处理有明确时长的 HLS/DASH 点播清单；检测到直播或无法确定时长的清单，已停止以防无限处理。")
+            }
             val filter = buildVideoFilter(request.targetFrameRate, request.outputResolution)
 
-            val args = mutableListOf(
-                "-hide_banner", "-y", "-i", inputPath,
+            val args = mutableListOf("-hide_banner", "-y")
+            if (isNetworkPlaylist(inputPath)) {
+                args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
+            }
+            args += listOf(
+                "-i", inputPath,
                 "-map", "0:v:0", "-map_metadata", "0", "-map_chapters", "0",
                 "-vf", filter, "-c:v", encoder, "-b:v", "${request.bitrateMbps}M",
                 "-pix_fmt", "yuv420p", "-fps_mode", "cfr", "-max_muxing_queue_size", "4096"
@@ -122,7 +130,8 @@ class FfmpegProcessingCoordinator(context: Context) {
             }
             val path = uri.path.orEmpty().lowercase()
             if (path.endsWith(".m3u8") || path.endsWith(".mpd")) {
-                throw IOException("FFmpeg 模式目前处理 HTTPS 视频文件直链，不处理 HLS/DASH 清单。HLS 可在主页预览。")
+                onStatus(if (path.endsWith(".m3u8")) "FFmpeg 正在读取 HTTPS HLS 点播清单…" else "FFmpeg 正在读取 HTTPS DASH 点播清单…")
+                return uri.toString()
             }
 
             onStatus("正在通过 HTTPS 下载视频到本地缓存…")
@@ -141,10 +150,13 @@ class FfmpegProcessingCoordinator(context: Context) {
                     throw IOException("服务器将 HTTPS 请求重定向到了非加密地址，已阻止下载。")
                 }
                 val contentType = connection.contentType.orEmpty().lowercase()
-                if (contentType.contains("mpegurl") || contentType.contains("dash+xml") ||
-                    contentType.startsWith("text/html")
-                ) {
-                    throw IOException("该地址返回的是网页或流媒体清单，不是可直接处理的视频文件。")
+                if (contentType.contains("mpegurl") || contentType.contains("dash+xml")) {
+                    onStatus("检测到 HTTPS 流媒体点播清单，交由 FFmpeg 读取…")
+                    cacheFile.delete()
+                    return uri.toString()
+                }
+                if (contentType.startsWith("text/html")) {
+                    throw IOException("该地址返回的是网页，不是可直接处理的视频文件。")
                 }
                 val totalBytes = connection.contentLengthLong
                 connection.inputStream.use { input ->
@@ -197,13 +209,24 @@ class FfmpegProcessingCoordinator(context: Context) {
         return cacheFile.absolutePath
     }
 
-    private fun probeDurationMs(path: String): Long {
-        val session = FFprobeKit.executeWithArguments(
-            arrayOf("-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", path)
+    private fun probeDurationMs(path: String, isNetwork: Boolean): Long {
+        val args = mutableListOf("-v", "error")
+        if (isNetworkPlaylist(path)) {
+            args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
+        }
+        args += listOf(
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", path
         )
+        val session = FFprobeKit.executeWithArguments(args.toTypedArray())
         if (!ReturnCode.isSuccess(session.returnCode)) return 0L
         return session.getOutput()?.trim()?.toDoubleOrNull()?.times(1000.0)?.toLong()?.coerceAtLeast(0L) ?: 0L
+    }
+
+    private fun isNetworkPlaylist(path: String): Boolean {
+        if (!path.startsWith("https://", ignoreCase = true)) return false
+        val urlPath = runCatching { Uri.parse(path).path.orEmpty().lowercase() }.getOrDefault("")
+        return urlPath.endsWith(".m3u8") || urlPath.endsWith(".mpd")
     }
 
     private fun findEncoder(codec: VideoCodec): String {
