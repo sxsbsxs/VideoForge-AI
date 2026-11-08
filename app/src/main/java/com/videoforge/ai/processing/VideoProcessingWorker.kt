@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -28,6 +29,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Long-running foreground work. WorkManager persists the request and can restart the worker
@@ -50,8 +53,18 @@ class VideoProcessingWorker(
             val latestEta = AtomicReference("正在准备")
             val latestStage = AtomicReference(ProcessingStage.Extraction.name)
             val latestStatus = AtomicReference<String?>(null)
-            val lastNotificationPercent = java.util.concurrent.atomic.AtomicInteger(-1)
+            val lastNotificationPercent = AtomicInteger(-1)
+            val lastProgressWriteAt = AtomicLong(0L)
+            val lastNotificationWriteAt = AtomicLong(0L)
             fun writeProgress() {
+                val now = SystemClock.elapsedRealtime()
+                val percent = latestProgress.get().toInt().coerceIn(0, 100)
+                val previousPercent = lastNotificationPercent.get()
+                val shouldPersist = percent != previousPercent ||
+                    now - lastProgressWriteAt.get() >= 500L
+                if (!shouldPersist) return
+                lastProgressWriteAt.set(now)
+
                 runBlocking(Dispatchers.IO) {
                     val data = Data.Builder()
                         .putFloat(KEY_PROGRESS, latestProgress.get())
@@ -61,8 +74,13 @@ class VideoProcessingWorker(
                         .build()
                     setProgress(data)
                 }
-                val percent = latestProgress.get().toInt().coerceIn(0, 100)
-                if (percent != lastNotificationPercent.getAndSet(percent)) {
+
+                val previousNotificationAt = lastNotificationWriteAt.get()
+                if (percent != lastNotificationPercent.get() ||
+                    now - previousNotificationAt >= 1_500L
+                ) {
+                    lastNotificationPercent.set(percent)
+                    lastNotificationWriteAt.set(now)
                     runCatching {
                         val manager = applicationContext.getSystemService(
                             Context.NOTIFICATION_SERVICE

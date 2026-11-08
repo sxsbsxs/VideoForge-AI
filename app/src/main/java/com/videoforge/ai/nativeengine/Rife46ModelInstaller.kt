@@ -2,6 +2,8 @@ package com.videoforge.ai.nativeengine
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -65,7 +67,7 @@ object Rife46ModelInstaller {
         modelDirectory
     }
 
-    private fun downloadAndVerify(
+    private suspend fun downloadAndVerify(
         target: File,
         artifact: ModelArtifact,
         onProgress: (String, Long, Long) -> Unit
@@ -91,6 +93,7 @@ object Rife46ModelInstaller {
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var downloaded = 0L
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
