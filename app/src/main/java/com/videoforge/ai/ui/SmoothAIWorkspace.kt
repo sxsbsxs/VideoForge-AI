@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.VideoFile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -79,6 +82,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -181,7 +185,8 @@ fun SmoothAIWorkspace(
     onVideoPicked: (Uri) -> Unit,
     onStartProcess: (VideoProcessRequest) -> Unit,
     onPauseTask: (Boolean) -> Unit,
-    onCancelTask: () -> Unit
+    onCancelTask: () -> Unit,
+    onShareOutput: (Uri) -> Unit
 ) {
     val state by processViewModel.uiState.collectAsState()
     val benchmarkState by benchmarkViewModel.uiState.collectAsState()
@@ -242,7 +247,9 @@ fun SmoothAIWorkspace(
 
                     VideoPageRoute.History -> HistoryWorkspace(
                         history = state.historyList,
-                        onOpenResult = processViewModel::openHistoryItem
+                        onOpenResult = processViewModel::openHistoryItem,
+                        onDeleteItem = processViewModel::removeHistoryItem,
+                        onClearHistory = processViewModel::clearHistory
                     )
 
                     VideoPageRoute.Settings -> SettingsWorkspace(
@@ -257,15 +264,13 @@ fun SmoothAIWorkspace(
                             processViewModel.setPaused(paused)
                             onPauseTask(paused)
                         },
-                        onCancel = {
-                            onCancelTask()
-                            processViewModel.cancelCurrentTask()
-                        }
+                        onCancel = onCancelTask
                     )
 
                     VideoPageRoute.Result -> ResultWorkspace(
                         state = state,
-                        onBackHome = processViewModel::backToHome
+                        onBackHome = processViewModel::backToHome,
+                        onShareOutput = onShareOutput
                     )
 
                     VideoPageRoute.Benchmark -> DeviceBenchmarkScreen(
@@ -885,15 +890,27 @@ private fun GlassChoiceCard(
 @Composable
 private fun HistoryWorkspace(
     history: List<HistoryItem>,
-    onOpenResult: (HistoryItem) -> Unit
+    onOpenResult: (HistoryItem) -> Unit,
+    onDeleteItem: (HistoryItem) -> Unit,
+    onClearHistory: () -> Unit
 ) {
+    var confirmClear by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp, vertical = 22.dp)
     ) {
-        Text("处理记录", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("每一次画面提升，都留有记录。", color = Muted, fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("处理记录", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+                Text("记录会在重启后保留。", color = Muted, fontSize = 12.sp)
+            }
+            if (history.isNotEmpty()) {
+                TextButton(onClick = { confirmClear = true }) {
+                    Text("清空记录", color = Danger)
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
 
         if (history.isEmpty()) {
@@ -916,15 +933,42 @@ private fun HistoryWorkspace(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(history, key = { it.id }) { item ->
-                    HistoryCard(item, onClick = { onOpenResult(item) })
+                    HistoryCard(
+                        item = item,
+                        onClick = { onOpenResult(item) },
+                        onDelete = { onDeleteItem(item) }
+                    )
                 }
             }
         }
     }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空处理记录？") },
+            text = {
+                Text("这只会移除 SmoothAI 的历史列表，不会删除 Movies/SmoothAI 中已导出的视频。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearHistory()
+                    confirmClear = false
+                }) { Text("清空", color = Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
-private fun HistoryCard(item: HistoryItem, onClick: () -> Unit) {
+private fun HistoryCard(
+    item: HistoryItem,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
     GlassPanel(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             VideoThumbnail(
@@ -938,9 +982,14 @@ private fun HistoryCard(item: HistoryItem, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(item.fileName, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${item.outputFps} FPS  ·  ${item.outputResolution}", color = Aurora, fontSize = 11.sp)
-                Text("${item.codec.title}  ·  ${formatDate(item.processedAt)}", color = Muted, fontSize = 10.sp)
+                Text("${item.processingEngine.title} · ${item.codec.title} · ${formatDate(item.processedAt)}", color = Muted, fontSize = 10.sp)
             }
-            Text(formatBytes(item.fileSizeBytes), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatBytes(item.fileSizeBytes), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "从历史列表移除", tint = Muted)
+                }
+            }
         }
     }
 }
@@ -1307,7 +1356,8 @@ private fun ProcessingWorkspace(
 @Composable
 private fun ResultWorkspace(
     state: VideoProcessUiState,
-    onBackHome: () -> Unit
+    onBackHome: () -> Unit,
+    onShareOutput: (Uri) -> Unit
 ) {
     val settings = state.userSettings
     Column(
@@ -1360,6 +1410,17 @@ private fun ResultWorkspace(
             }
         }
         Spacer(Modifier.height(18.dp))
+        state.processedOutputUri?.let { outputUri ->
+            OutlinedButton(
+                onClick = { onShareOutput(outputUri) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("分享处理后的视频")
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         Button(
             onClick = onBackHome,
             modifier = Modifier.fillMaxWidth().height(54.dp),

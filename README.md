@@ -11,7 +11,8 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - SmoothAI dark aurora workspace: Home / History / Settings tabs with a Material 3 NavigationBar
 - System Photo Picker video import and in-app Media3 ExoPlayer preview
 - Direct network MP4 / HLS preview for supported URLs
-- Output settings for H.264 / H.265 / AV1 (subject to device codec capability), MP4, bitrate and optional source-audio retention; MKV is visibly disabled until a Matroska muxer is added
+- Selectable RIFE 4.6 AI or FFmpeg motion-compensated interpolation engine
+- RIFE AI exports MP4; FFmpeg exports MP4 or MKV, with runtime encoder detection, bitrate and optional audio retention
 - Synchronized original-versus-processed dual-player comparison UI with shared seek, play/pause and playback speed
 - History list with generated video-frame thumbnails
 - On-device RIFE 4.6 benchmark screen with device, RAM, Vulkan backend and thermal status
@@ -22,7 +23,8 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
 - End-to-end MediaExtractor / MediaCodec pipeline: YUV decode, RGB24 conversion, timestamp-driven RIFE interpolation, YUV420 encode and MP4 muxing
 - Source audio packet reuse with timestamp interleaving, aspect-ratio-preserving output sizing, MediaStore export to Movies/SmoothAI
-- Cooperative pause/cancel handling and Android severe-thermal-status wait when thermal protection is enabled
+- Foreground WorkManager processing with progress restoration after app relaunch; RIFE supports cooperative pause/cancel, FFmpeg supports cancel but its pause control is disabled
+- Android severe-thermal-status protection; stale temporary cache files are cleaned only when auto-clean is enabled
 - Vulkan device detection with optional CPU fallback
 - First-run RIFE model downloader with file size and Git blob SHA-1 verification
 
@@ -38,7 +40,7 @@ The home screen uses Android's system Photo Picker for local videos and Media3 E
 
 The result screen now receives the exported output `Uri` from the processing coordinator and opens the synchronized original-versus-output comparison player. Both players share play/pause, seek position and playback speed.
 
-History currently lives in the ViewModel state for the active app process; persistent database storage is a separate follow-up. Battery temperature is read from Android's battery status broadcast and shown as a device-temperature indicator. This is battery temperature, not a direct measurement of the SoC/GPU junction temperature.
+Processing settings, selected source details and up to 200 history records are persisted in app-private SharedPreferences. Removing or clearing a history entry only removes the record; exported videos remain in Movies/SmoothAI. Battery temperature is read from Android's battery status broadcast and shown as a device-temperature indicator. This is battery temperature, not a direct measurement of the SoC/GPU junction temperature.
 
 ## Native architecture
 
@@ -80,13 +82,15 @@ The app now wires the processing button to `VideoProcessingCoordinator`:
 The coordinator prefers a hardware encoder when it advertises the requested size/rate and a supported YUV420 input format. It does not guarantee that every device can encode AV1, 4K or 120 FPS. Large resolutions and high frame rates can exhaust GPU memory, system memory or thermal headroom. The device's codec capabilities are checked before encoding, but a successful CI build does not prove that a particular handset can finish a long video.
 
 Current constraints:
-- MP4 is the only export container. MKV is disabled in the parameter sheet until a Matroska muxer is implemented.
-- Processing is limited to media that Android's `MediaExtractor` and installed `MediaCodec` components can decode. Preview support in ExoPlayer does not imply every preview URL is processable.
-- Resolution changes currently use conventional aspect-ratio-preserving scaling; RIFE 4.6 provides frame interpolation, not AI super-resolution. No AI upscaling model is integrated yet.
-- The current YUV-to-RGB path is an SDR conversion path; HDR / wide-gamut metadata and HDR transfer characteristics are not preserved end-to-end.
-- Subtitles, chapter metadata, DRM-protected media and interrupted-task resume are not implemented.
-- Source audio is copied without transcoding. If the source audio format cannot be added to the MP4 muxer, processing reports an error rather than silently dropping audio.
-- The history list is in-memory only. A persistent database and a full recovery/segmented-processing system remain future work.
+- RIFE AI exports MP4 only. FFmpeg exports MP4 and MKV. The two engines do not share every feature.
+- RIFE input must be decodable by Android `MediaExtractor` / `MediaCodec`; direct MP4-style network sources may work, but HLS/DASH processing is not supported. ExoPlayer preview support does not guarantee processing support.
+- FFmpeg downloads HTTPS video-file URLs to app-private cache before processing. HLS/DASH manifests and cleartext HTTP are rejected in this mode; HLS remains preview-only.
+- FFmpeg MP4 output omits subtitles to avoid failing on bitmap subtitle tracks. MKV copies subtitle tracks when FFmpeg and the source support them.
+- Resolution changes use aspect-ratio-preserving conventional scaling; RIFE 4.6 provides frame interpolation, not AI super-resolution. No AI upscaling model is integrated.
+- The RIFE YUV-to-RGB path is SDR-only. HDR / wide-gamut / 10-bit input is rejected rather than silently treated as SDR.
+- DRM-protected input, subtitle preservation in the RIFE path, segmented resume/checkpointing, and crash recovery from the last completed frame are not implemented. WorkManager can restart a task after process death, but it restarts the conversion from the beginning.
+- RIFE pause is cooperative between frames. FFmpeg pause is not exposed; cancellation is supported for both engines.
+- Audio handling differs: RIFE reuses compatible compressed audio packets; FFmpeg transcodes MP4 audio to AAC and copies MKV audio where possible.
 
 The RIFE model is downloaded on first use into app-private storage and checksum-verified. Severe Android thermal status causes the coordinator to wait when thermal protection is enabled; this does not bypass Android's own thermal controls.
 

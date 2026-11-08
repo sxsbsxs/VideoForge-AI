@@ -19,6 +19,7 @@ fun VideoSmoothAIApp(
     onStartProcess: (VideoProcessRequest) -> Unit,
     onPauseTask: (Boolean) -> Unit,
     onCancelTask: () -> Unit,
+    onShareOutput: (Uri) -> Unit,
     benchmarkViewModel: DeviceBenchmarkViewModel
 ) {
     SmoothAIWorkspace(
@@ -27,6 +28,7 @@ fun VideoSmoothAIApp(
         onVideoPicked = onVideoPicked,
         onStartProcess = onStartProcess,
         onPauseTask = onPauseTask,
-        onCancelTask = onCancelTask
+        onCancelTask = onCancelTask,
+        onShareOutput = onShareOutput
     )
 }

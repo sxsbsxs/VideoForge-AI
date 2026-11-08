@@ -19,11 +19,15 @@ import com.videoforge.ai.viewmodel.VideoOutputResolution
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
@@ -49,7 +53,9 @@ class FfmpegProcessingCoordinator(context: Context) {
         val cleanedStaleBytes = if (request.autoCleanFragments) cleanStaleCacheFiles() else 0L
         try {
             onProgress(1f, "正在准备 FFmpeg", ProcessingStage.Extraction)
-            val inputPath = resolveInputPath(request.source.uri, inputCopy).also {
+            require(request.targetFrameRate in 30..120) { "目标帧率必须在 30–120 FPS 之间。" }
+            require(request.bitrateMbps in 2..100) { "目标码率必须在 2–100 Mbps 之间。" }
+            val inputPath = resolveInputPath(request.source.uri, inputCopy, onStatus).also {
                 if (it == inputCopy.absolutePath) copiedInputBytes = inputCopy.length()
             }
             onStatus("正在检测 FFmpeg 编码器")
@@ -71,8 +77,9 @@ class FfmpegProcessingCoordinator(context: Context) {
             if (request.container == VideoContainer.MKV) {
                 args += listOf("-map", "0:s?", "-c:s", "copy", "-f", "matroska")
             } else {
-                // Text subtitles are converted to mov_text. Bitmap subtitle formats may fail.
-                args += listOf("-map", "0:s?", "-c:s", "mov_text", "-movflags", "+faststart", "-f", "mp4")
+                // MP4 subtitle conversion is format-specific. Omit subtitles rather than
+                // failing a valid transcode on bitmap subtitle tracks.
+                args += listOf("-sn", "-movflags", "+faststart", "-f", "mp4")
             }
             args += outputTemp.absolutePath
 
@@ -103,12 +110,90 @@ class FfmpegProcessingCoordinator(context: Context) {
         }
     }
 
-    private fun resolveInputPath(uri: Uri, cacheFile: File): String {
-        if (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) return uri.toString()
-        if (uri.scheme.equals("file", true)) return uri.path ?: throw IOException("本地视频路径无效。")
-        val input = app.contentResolver.openInputStream(uri) ?: throw IOException("无法读取视频，请重新选择文件。")
-        input.use { source -> cacheFile.outputStream().buffered().use { output -> source.copyTo(output) } }
-        if (!cacheFile.isFile || cacheFile.length() == 0L) throw IOException("视频复制到临时目录失败。")
+    private suspend fun resolveInputPath(
+        uri: Uri,
+        cacheFile: File,
+        onStatus: (String?) -> Unit
+    ): String {
+        val scheme = uri.scheme.orEmpty()
+        if (scheme.equals("http", true) || scheme.equals("https", true)) {
+            if (scheme.equals("http", true)) {
+                throw IOException("FFmpeg 模式的网络视频请使用 HTTPS 直链；明文 HTTP 下载已禁用。")
+            }
+            val path = uri.path.orEmpty().lowercase()
+            if (path.endsWith(".m3u8") || path.endsWith(".mpd")) {
+                throw IOException("FFmpeg 模式目前处理 HTTPS 视频文件直链，不处理 HLS/DASH 清单。HLS 可在主页预览。")
+            }
+
+            onStatus("正在通过 HTTPS 下载视频到本地缓存…")
+            val connection = (URL(uri.toString()).openConnection() as? HttpURLConnection)
+                ?: throw IOException("无法创建 HTTPS 下载连接。")
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 60_000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("User-Agent", "SmoothAI-Android")
+            try {
+                connection.connect()
+                if (connection.responseCode !in 200..299) {
+                    throw IOException("HTTPS 视频下载失败：HTTP ${connection.responseCode}")
+                }
+                if (!connection.url.protocol.equals("https", true)) {
+                    throw IOException("服务器将 HTTPS 请求重定向到了非加密地址，已阻止下载。")
+                }
+                val contentType = connection.contentType.orEmpty().lowercase()
+                if (contentType.contains("mpegurl") || contentType.contains("dash+xml") ||
+                    contentType.startsWith("text/html")
+                ) {
+                    throw IOException("该地址返回的是网页或流媒体清单，不是可直接处理的视频文件。")
+                }
+                val totalBytes = connection.contentLengthLong
+                connection.inputStream.use { input ->
+                    cacheFile.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var copied = 0L
+                        var lastReported = -10
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            copied += count
+                            if (totalBytes > 0L) {
+                                val percent = (copied * 100L / totalBytes).toInt()
+                                if (percent >= lastReported + 10) {
+                                    lastReported = percent
+                                    onStatus("HTTPS 视频下载：${percent.coerceAtMost(100)}%")
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                connection.disconnect()
+            }
+            if (!cacheFile.isFile || cacheFile.length() == 0L) {
+                throw IOException("HTTPS 视频下载结果为空。")
+            }
+            return cacheFile.absolutePath
+        }
+
+        if (scheme.equals("file", true)) return uri.path ?: throw IOException("本地视频路径无效。")
+        val input = app.contentResolver.openInputStream(uri)
+            ?: throw IOException("无法读取视频，请重新选择文件。")
+        input.use { source ->
+            cacheFile.outputStream().buffered().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = source.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+        if (!cacheFile.isFile || cacheFile.length() == 0L) {
+            throw IOException("视频复制到临时目录失败。")
+        }
         return cacheFile.absolutePath
     }
 

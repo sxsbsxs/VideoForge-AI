@@ -8,7 +8,7 @@ The Android native build fetches and statically links the following upstream pro
 | ncnn | https://github.com/Tencent/ncnn | `b4ba207c18d3103d6df890c0e3a97b469b196b26` | BSD-3-Clause plus separately identified third-party notices in its license file |
 | libwebp | https://github.com/webmproject/libwebp | `5abb55823bb6196a918dd87202b2f32bbaff4c18` | BSD-3-Clause |
 | glslang | https://github.com/KhronosGroup/glslang | `86ff4bca1ddc7e2262f119c16e7228d0efb67610` | Multiple licenses; see upstream LICENSE.txt copied into the APK |
-| FFmpegKit Android maintained fork | https://github.com/ffmpegkit-maintained/ffmpeg | `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7` | LGPL-3.0; non-GPL artifact. Its AAR bundles `THIRD-PARTY-NOTICES.txt`; see the upstream notice and license terms |
+| FFmpegKit Android maintained fork | https://github.com/ffmpegkit-maintained/ffmpeg | `dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.9` | LGPL-3.0; non-GPL artifact. Its AAR bundles `THIRD-PARTY-NOTICES.txt`; see the upstream notice and license terms |
 
 The RIFE v4.6 model files are downloaded from the same pinned RIFE repository commit at first use. The installer checks their official Git blob IDs before making them available to the native engine.
 

@@ -24,6 +24,7 @@ import androidx.work.WorkManager
 import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
 import com.videoforge.ai.processing.ProcessingRuntime
 import com.videoforge.ai.processing.VideoProcessingWorker
+import com.videoforge.ai.nativeengine.Rife46ModelInstaller
 import com.videoforge.ai.ui.VideoSmoothAIApp
 import com.videoforge.ai.ui.VideoSmoothAITheme
 import com.videoforge.ai.viewmodel.ProcessingEngine
@@ -32,6 +33,10 @@ import com.videoforge.ai.viewmodel.SelectedVideoInfo
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import com.videoforge.ai.viewmodel.VideoProcessViewModel
 import java.util.UUID
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val processViewModel: VideoProcessViewModel by viewModels()
@@ -41,8 +46,9 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences("smoothai_active_task", MODE_PRIVATE)
     }
     private var activeWorkId: UUID? = null
-    private var observedWork: LiveData<WorkInfo>? = null
-    private var workObserver: Observer<WorkInfo>? = null
+    private var observedWork: LiveData<WorkInfo?>? = null
+    private var workObserver: Observer<WorkInfo?>? = null
+    private var preparationJob: Job? = null
     private var batteryReceiverRegistered = false
 
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -75,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     onStartProcess = ::onStartProcess,
                     onPauseTask = ::onPauseTask,
                     onCancelTask = ::onCancelTask,
+                    onShareOutput = ::shareOutput,
                     benchmarkViewModel = benchmarkViewModel
                 )
             }
@@ -178,31 +185,42 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onStartProcess(request: VideoProcessRequest) {
+        preparationJob?.cancel()
         ProcessingRuntime.paused = false
         processViewModel.setPaused(false)
-        processViewModel.setStatusMessage("正在提交后台视频处理任务…")
+        processViewModel.setStatusMessage("正在检查模型与网络条件…")
 
-        val constraints = Constraints.Builder().apply {
-            if (request.source.isNetworkSource) {
-                setRequiredNetworkType(NetworkType.CONNECTED)
-            }
-        }.build()
-        val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
-            .setInputData(VideoProcessingWorker.encodeRequest(request))
-            .setConstraints(constraints)
-            .addTag(VideoProcessingWorker.TAG)
-            .build()
+        preparationJob = lifecycleScope.launch {
+            val modelInstalled = if (request.processingEngine == ProcessingEngine.RIFE_AI) {
+                withContext(Dispatchers.IO) {
+                    Rife46ModelInstaller.isInstalled(applicationContext)
+                }
+            } else true
 
-        activeWorkId = work.id
-        taskPreferences.edit()
-            .putString(VideoProcessingWorker.PREF_WORK_ID, work.id.toString())
-            .apply()
-        workManager.enqueueUniqueWork(
-            VideoProcessingWorker.TAG,
-            ExistingWorkPolicy.REPLACE,
-            work
-        )
-        observeProcessingWork(work.id)
+            val requiresNetwork = request.source.isNetworkSource ||
+                (request.processingEngine == ProcessingEngine.RIFE_AI && !modelInstalled)
+            val constraints = Constraints.Builder().apply {
+                if (requiresNetwork) setRequiredNetworkType(NetworkType.CONNECTED)
+            }.build()
+
+            val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
+                .setInputData(VideoProcessingWorker.encodeRequest(request))
+                .setConstraints(constraints)
+                .addTag(VideoProcessingWorker.TAG)
+                .build()
+
+            activeWorkId = work.id
+            taskPreferences.edit()
+                .putString(VideoProcessingWorker.PREF_WORK_ID, work.id.toString())
+                .apply()
+            workManager.enqueueUniqueWork(
+                VideoProcessingWorker.TAG,
+                ExistingWorkPolicy.REPLACE,
+                work
+            )
+            preparationJob = null
+            observeProcessingWork(work.id)
+        }
     }
 
     private fun observeProcessingWork(id: UUID) {
@@ -282,9 +300,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onCancelTask() {
+        preparationJob?.cancel()
+        preparationJob = null
         ProcessingRuntime.paused = false
         activeWorkId?.let { workManager.cancelWorkById(it) }
         clearObservedWork()
         processViewModel.cancelCurrentTask()
+    }
+
+    private fun shareOutput(uri: Uri) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "video/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching {
+            startActivity(Intent.createChooser(intent, "分享 SmoothAI 处理结果"))
+        }.onFailure {
+            processViewModel.setStatusMessage("无法打开系统分享面板：${it.message ?: "未知错误"}")
+        }
     }
 }

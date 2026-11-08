@@ -40,6 +40,11 @@ object Rife46ModelInstaller {
         )
     )
 
+    fun isInstalled(context: Context): Boolean {
+        val directory = File(context.applicationContext.filesDir, "models/rife-v4.6")
+        return artifacts.all { artifact -> isValid(File(directory, artifact.fileName), artifact) }
+    }
+
     suspend fun ensureInstalled(
         context: Context,
         onProgress: (fileName: String, downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _, _ -> }
