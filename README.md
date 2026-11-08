@@ -25,8 +25,10 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
 - End-to-end MediaExtractor / MediaCodec pipeline: YUV decode, RGB24 conversion, timestamp-driven RIFE interpolation, YUV420 encode and MP4 muxing
 - Source audio packet reuse with timestamp interleaving, aspect-ratio-preserving output sizing, MediaStore export to Movies/SmoothAI
-- Foreground WorkManager processing with progress restoration after app relaunch; RIFE supports cooperative pause/cancel, FFmpeg supports cancel but its pause control is disabled
-- The foreground notification updates progress and includes a direct cancel action
+- Foreground WorkManager processing with progress restoration after app relaunch; the app reconnects to unfinished work by unique work name even if its saved UUID is missing
+- Home-page primary action and the processing banner return to the existing job instead of offering a duplicate start
+- New submissions use WorkManager `KEEP` semantics so an accidental second tap cannot replace/cancel the current conversion
+- The foreground notification opens SmoothAI when tapped, restores the current task, and includes a direct cancel action
 - Thermal guard treats Android SEVERE as advisory; only a sustained CRITICAL state (5 seconds) yields/stops processing, while Android's own system thermal controls remain active
 - Stale temporary cache files are cleaned only when auto-clean is enabled
 - Vulkan device detection with optional CPU fallback
