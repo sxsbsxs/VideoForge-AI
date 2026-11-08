@@ -181,9 +181,12 @@ Java_com_videoforge_ai_nativeengine_Rife46Engine_nativeInterpolate(
         return nullptr;
     }
 
-    ncnn::Mat input0(width, height, static_cast<void*>(pixels0), static_cast<size_t>(3), 3);
-    ncnn::Mat input1(width, height, static_cast<void*>(pixels1), static_cast<size_t>(3), 3);
-    ncnn::Mat output(width, height, static_cast<size_t>(3), 3);
+    // RGB24 is one packed 3-byte pixel per spatial element. The final argument
+    // is elempack and must be 1 (not 3); upstream RIFE's Vulkan fast path uses
+    // the same Mat layout when wrapping PIXEL_RGB input bytes.
+    ncnn::Mat input0(width, height, static_cast<void*>(pixels0), static_cast<size_t>(3), 1);
+    ncnn::Mat input1(width, height, static_cast<void*>(pixels1), static_cast<size_t>(3), 1);
+    ncnn::Mat output(width, height, static_cast<size_t>(3), 1);
 
     int process_result = -1;
     {
