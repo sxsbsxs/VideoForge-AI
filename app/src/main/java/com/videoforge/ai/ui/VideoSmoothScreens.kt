@@ -292,18 +292,21 @@ fun SettingsScreen(
         Spacer(Modifier.height(28.dp))
         Text("目标帧率", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf(30, 60, 90, 120).forEach { fps ->
-                FilterChip(
-                    selected = state.targetFrameRate == fps,
-                    onClick = { onFrameRateChange(fps) },
-                    label = { Text("${fps} FPS") },
-                    leadingIcon = if (state.targetFrameRate == fps) {
-                        { Icon(Icons.Default.CheckCircle, contentDescription = null) }
-                    } else null,
-                    modifier = Modifier.weight(1f)
-                )
+        listOf(listOf(30, 60), listOf(90, 120)).forEach { fpsRow ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                fpsRow.forEach { fps ->
+                    FilterChip(
+                        selected = state.targetFrameRate == fps,
+                        onClick = { onFrameRateChange(fps) },
+                        label = { Text("${fps} FPS") },
+                        leadingIcon = if (state.targetFrameRate == fps) {
+                            { Icon(Icons.Default.CheckCircle, contentDescription = null) }
+                        } else null,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
+            Spacer(Modifier.height(8.dp))
         }
         Spacer(Modifier.height(24.dp))
         Text("输出分辨率", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
