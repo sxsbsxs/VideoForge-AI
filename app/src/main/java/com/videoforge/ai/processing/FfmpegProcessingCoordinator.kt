@@ -40,6 +40,8 @@ import kotlin.coroutines.resumeWithException
 class FfmpegProcessingCoordinator(context: Context) {
     private val app = context.applicationContext
 
+    private data class ResolvedInput(val path: String, val isPlaylist: Boolean)
+
     suspend fun process(
         request: VideoProcessRequest,
         onProgress: (Float, String, ProcessingStage) -> Unit,
@@ -55,20 +57,20 @@ class FfmpegProcessingCoordinator(context: Context) {
             onProgress(1f, "正在准备 FFmpeg", ProcessingStage.Extraction)
             require(request.targetFrameRate in 30..120) { "目标帧率必须在 30–120 FPS 之间。" }
             require(request.bitrateMbps in 2..100) { "目标码率必须在 2–100 Mbps 之间。" }
-            val inputPath = resolveInputPath(request.source.uri, inputCopy, onStatus).also {
-                if (it == inputCopy.absolutePath) copiedInputBytes = inputCopy.length()
-            }
+            val input = resolveInputPath(request.source.uri, inputCopy, onStatus)
+            val inputPath = input.path
+            if (inputPath == inputCopy.absolutePath) copiedInputBytes = inputCopy.length()
             onStatus("正在检测 FFmpeg 编码器")
             val encoder = findEncoder(request.videoCodec)
             val durationMs = request.source.durationMs.takeIf { it > 0L }
-                ?: probeDurationMs(inputPath)
-            if (isNetworkPlaylist(inputPath) && durationMs <= 0L) {
+                ?: probeDurationMs(inputPath, input.isPlaylist)
+            if (input.isPlaylist && durationMs <= 0L) {
                 throw IOException("FFmpeg 只处理有明确时长的 HLS/DASH 点播清单；检测到直播或无法确定时长的清单，已停止以防无限处理。")
             }
             val filter = buildVideoFilter(request.targetFrameRate, request.outputResolution)
 
             val args = mutableListOf("-hide_banner", "-y")
-            if (isNetworkPlaylist(inputPath)) {
+            if (input.isPlaylist) {
                 args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
             }
             args += listOf(
@@ -122,7 +124,7 @@ class FfmpegProcessingCoordinator(context: Context) {
         uri: Uri,
         cacheFile: File,
         onStatus: (String?) -> Unit
-    ): String {
+    ): ResolvedInput {
         val scheme = uri.scheme.orEmpty()
         if (scheme.equals("http", true) || scheme.equals("https", true)) {
             if (scheme.equals("http", true)) {
@@ -131,7 +133,7 @@ class FfmpegProcessingCoordinator(context: Context) {
             val path = uri.path.orEmpty().lowercase()
             if (path.endsWith(".m3u8") || path.endsWith(".mpd")) {
                 onStatus(if (path.endsWith(".m3u8")) "FFmpeg 正在读取 HTTPS HLS 点播清单…" else "FFmpeg 正在读取 HTTPS DASH 点播清单…")
-                return uri.toString()
+                return ResolvedInput(uri.toString(), isPlaylist = true)
             }
 
             onStatus("正在通过 HTTPS 下载视频到本地缓存…")
@@ -153,7 +155,7 @@ class FfmpegProcessingCoordinator(context: Context) {
                 if (contentType.contains("mpegurl") || contentType.contains("dash+xml")) {
                     onStatus("检测到 HTTPS 流媒体点播清单，交由 FFmpeg 读取…")
                     cacheFile.delete()
-                    return uri.toString()
+                    return ResolvedInput(uri.toString(), isPlaylist = true)
                 }
                 if (contentType.startsWith("text/html")) {
                     throw IOException("该地址返回的是网页，不是可直接处理的视频文件。")
@@ -186,10 +188,12 @@ class FfmpegProcessingCoordinator(context: Context) {
             if (!cacheFile.isFile || cacheFile.length() == 0L) {
                 throw IOException("HTTPS 视频下载结果为空。")
             }
-            return cacheFile.absolutePath
+            return ResolvedInput(cacheFile.absolutePath, isPlaylist = false)
         }
 
-        if (scheme.equals("file", true)) return uri.path ?: throw IOException("本地视频路径无效。")
+        if (scheme.equals("file", true)) {
+            return ResolvedInput(uri.path ?: throw IOException("本地视频路径无效。"), isPlaylist = false)
+        }
         val input = app.contentResolver.openInputStream(uri)
             ?: throw IOException("无法读取视频，请重新选择文件。")
         input.use { source ->
@@ -206,12 +210,12 @@ class FfmpegProcessingCoordinator(context: Context) {
         if (!cacheFile.isFile || cacheFile.length() == 0L) {
             throw IOException("视频复制到临时目录失败。")
         }
-        return cacheFile.absolutePath
+        return ResolvedInput(cacheFile.absolutePath, isPlaylist = false)
     }
 
-    private fun probeDurationMs(path: String): Long {
+    private fun probeDurationMs(path: String, isPlaylist: Boolean): Long {
         val args = mutableListOf("-v", "error")
-        if (isNetworkPlaylist(path)) {
+        if (isPlaylist) {
             args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
         }
         args += listOf(
@@ -221,12 +225,6 @@ class FfmpegProcessingCoordinator(context: Context) {
         val session = FFprobeKit.executeWithArguments(args.toTypedArray())
         if (!ReturnCode.isSuccess(session.returnCode)) return 0L
         return session.getOutput()?.trim()?.toDoubleOrNull()?.times(1000.0)?.toLong()?.coerceAtLeast(0L) ?: 0L
-    }
-
-    private fun isNetworkPlaylist(path: String): Boolean {
-        if (!path.startsWith("https://", ignoreCase = true)) return false
-        val urlPath = runCatching { Uri.parse(path).path.orEmpty().lowercase() }.getOrDefault("")
-        return urlPath.endsWith(".m3u8") || urlPath.endsWith(".mpd")
     }
 
     private fun findEncoder(codec: VideoCodec): String {
