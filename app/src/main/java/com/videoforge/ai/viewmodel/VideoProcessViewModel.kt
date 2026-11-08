@@ -365,6 +365,18 @@ class VideoProcessViewModel : ViewModel() {
         }
     }
 
+    fun processingFailed(message: String) {
+        _uiState.update {
+            it.copy(
+                currentTab = MainTab.HOME,
+                currentPage = VideoPageRoute.Home,
+                isParameterSheetVisible = false,
+                isPaused = false,
+                statusMessage = message
+            )
+        }
+    }
+
     fun setStatusMessage(message: String?) {
         _uiState.update { it.copy(statusMessage = message) }
     }
