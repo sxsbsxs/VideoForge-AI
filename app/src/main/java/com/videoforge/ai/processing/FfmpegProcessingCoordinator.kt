@@ -46,6 +46,7 @@ class FfmpegProcessingCoordinator(context: Context) {
         val inputCopy = File(app.cacheDir, "smoothai_ffmpeg_input_$tag.bin")
         val outputTemp = File(app.cacheDir, "smoothai_ffmpeg_output_$tag.$extension")
         var copiedInputBytes = 0L
+        val cleanedStaleBytes = if (request.autoCleanFragments) cleanStaleCacheFiles() else 0L
         try {
             onProgress(1f, "正在准备 FFmpeg", ProcessingStage.Extraction)
             val inputPath = resolveInputPath(request.source.uri, inputCopy).also {
@@ -90,7 +91,7 @@ class FfmpegProcessingCoordinator(context: Context) {
             inputCopy.delete()
             onProgress(100f, "已完成", ProcessingStage.Completed)
             onStatus(null)
-            VideoProcessResult(uri, outputSize, tempSize + copiedInputBytes)
+            VideoProcessResult(uri, outputSize, tempSize + copiedInputBytes + cleanedStaleBytes)
         } catch (cancelled: CancellationException) {
             outputTemp.delete()
             inputCopy.delete()
@@ -212,6 +213,18 @@ class FfmpegProcessingCoordinator(context: Context) {
         )
         sessionRef.set(session)
         continuation.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
+    }
+
+    private fun cleanStaleCacheFiles(): Long {
+        val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+        var removedBytes = 0L
+        app.cacheDir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("smoothai_ffmpeg_") && it.lastModified() < cutoff }
+            ?.forEach { file ->
+                val size = file.length()
+                if (file.delete()) removedBytes += size
+            }
+        return removedBytes
     }
 
     private fun isSevereThermal(): Boolean {
