@@ -240,6 +240,22 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /** Reattaches the persisted WorkManager request without changing the screen the user is viewing. */
+    fun attachActiveRequest(request: VideoProcessRequest?) {
+        if (request != null) {
+            activeRequestSnapshot = request
+            if (_uiState.value.selectedVideo == null) {
+                persistSelectedVideo(request.source)
+            }
+        }
+        _uiState.update { current ->
+            current.copy(
+                isProcessingActive = true,
+                selectedVideo = current.selectedVideo ?: request?.source
+            )
+        }
+    }
+
     fun hideParameterSheet() {
         _uiState.update { it.copy(isParameterSheetVisible = false) }
     }
