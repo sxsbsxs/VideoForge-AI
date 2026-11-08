@@ -2,6 +2,7 @@ package com.videoforge.ai.processing
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.ImageFormat
 import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -100,6 +101,14 @@ class VideoProcessingCoordinator(context: Context) {
                     val inputFormat = videoExtractor.getTrackFormat(sourceVideoTrack)
                     val inputMime = inputFormat.getString(MediaFormat.KEY_MIME)
                         ?: throw IOException("无法识别源视频格式。")
+                    if (inputFormat.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+                        val transfer = inputFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER)
+                        if (transfer == MediaFormat.COLOR_TRANSFER_ST2084 ||
+                            transfer == MediaFormat.COLOR_TRANSFER_HLG
+                        ) {
+                            throw IOException("当前版本尚不支持 HDR/HLG 视频的色彩保真处理，请先转换为 SDR 再导入。")
+                        }
+                    }
                     val sourceWidth = inputFormat.getInteger(MediaFormat.KEY_WIDTH)
                     val sourceHeight = inputFormat.getInteger(MediaFormat.KEY_HEIGHT)
                     val durationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
@@ -315,6 +324,9 @@ class VideoProcessingCoordinator(context: Context) {
                                     val image = decoder!!.getOutputImage(outputIndex)
                                         ?: throw IOException("解码器未提供 YUV 图像；当前解码器输出格式不兼容。")
                                     val decoded = image.use { frame ->
+                                        if (frame.format != ImageFormat.YUV_420_888) {
+                                            throw IOException("当前仅支持 8-bit YUV420 解码输出；10-bit/P010 视频暂不支持。")
+                                        }
                                         val width = frame.cropRect.width()
                                         val height = frame.cropRect.height()
                                         Triple(imageToRgb(frame), width, height)
