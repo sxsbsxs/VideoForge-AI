@@ -215,7 +215,6 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun restoreActiveProcessing() {
-        activeRequestSnapshot = request
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
@@ -288,6 +287,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
             preserveAudio = settings.preserveAudio,
             processingEngine = settings.processingEngine
         )
+        activeRequestSnapshot = request
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
