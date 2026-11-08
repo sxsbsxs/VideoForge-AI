@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.update
 enum class VideoPageRoute { Home, Settings, Processing, Result, Benchmark }
 
 enum class VideoOutputResolution(val title: String) {
-    SOURCE("原始分辨率"),
+    SOURCE("原始"),
     HD_720("720p"),
     FULL_HD_1080("1080p"),
     QHD_1440("1440p"),
