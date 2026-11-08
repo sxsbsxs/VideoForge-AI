@@ -1,7 +1,11 @@
 package com.videoforge.ai.viewmodel
 
 import android.net.Uri
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import androidx.lifecycle.AndroidViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -124,8 +128,15 @@ data class VideoProcessUiState(
     val isOverheated: Boolean get() = progressData.isOverheated
 }
 
-class VideoProcessViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(VideoProcessUiState())
+class VideoProcessViewModel(application: Application) : AndroidViewModel(application) {
+    private val preferences = application.getSharedPreferences("smoothai_persistent_state", Context.MODE_PRIVATE)
+    private val restored = restorePersistentState()
+    private val _uiState = MutableStateFlow(
+        VideoProcessUiState(
+            userSettings = restored.first,
+            historyList = restored.second
+        )
+    )
     val uiState: StateFlow<VideoProcessUiState> = _uiState.asStateFlow()
 
     fun onVideoSelected(video: SelectedVideoInfo) {
@@ -210,6 +221,7 @@ class VideoProcessViewModel : ViewModel() {
 
     fun updateSettings(settings: UserSettings) {
         _uiState.update { it.copy(userSettings = settings) }
+        persistSettings(settings)
     }
 
     fun setTargetFrameRate(value: Int) {
@@ -305,13 +317,14 @@ class VideoProcessViewModel : ViewModel() {
             processingEngine = settings.processingEngine,
             container = settings.container
         )
+        val newHistory = listOf(item) + current.historyList
         _uiState.update {
             it.copy(
                 currentPage = VideoPageRoute.Result,
                 processedOutputUri = outputUri,
                 resultFileSizeBytes = fileSizeBytes,
                 cleanedTempBytes = cleanedTempBytes,
-                historyList = listOf(item) + it.historyList,
+                historyList = newHistory,
                 progressData = it.progressData.copy(
                     progressPercent = 100f,
                     estimatedRemainingTime = "已完成",
@@ -319,6 +332,7 @@ class VideoProcessViewModel : ViewModel() {
                 )
             )
         }
+        persistHistory(newHistory)
     }
 
     fun openHistoryItem(item: HistoryItem) {
@@ -358,7 +372,20 @@ class VideoProcessViewModel : ViewModel() {
     }
 
     fun addHistoryItem(item: HistoryItem) {
-        _uiState.update { it.copy(historyList = listOf(item) + it.historyList) }
+        val updated = listOf(item) + _uiState.value.historyList
+        _uiState.update { it.copy(historyList = updated) }
+        persistHistory(updated)
+    }
+
+    fun removeHistoryItem(item: HistoryItem) {
+        val updated = _uiState.value.historyList.filterNot { it.id == item.id }
+        _uiState.update { it.copy(historyList = updated) }
+        persistHistory(updated)
+    }
+
+    fun clearHistory() {
+        _uiState.update { it.copy(historyList = emptyList()) }
+        persistHistory(emptyList())
     }
 
     fun setPaused(paused: Boolean) {
@@ -393,5 +420,100 @@ class VideoProcessViewModel : ViewModel() {
 
     fun setStatusMessage(message: String?) {
         _uiState.update { it.copy(statusMessage = message) }
+    }
+
+    private fun persistSettings(settings: UserSettings) {
+        preferences.edit()
+            .putInt("fps", settings.targetFps)
+            .putString("resolution", settings.targetResolution.name)
+            .putString("codec", settings.videoCodec.name)
+            .putString("container", settings.container.name)
+            .putInt("bitrate", settings.bitrateMbps)
+            .putBoolean("safeThermal", settings.isSafeThermal)
+            .putBoolean("autoClean", settings.isAutoClean)
+            .putBoolean("preserveAudio", settings.preserveAudio)
+            .putString("engine", settings.processingEngine.name)
+            .apply()
+    }
+
+    private fun persistHistory(items: List<HistoryItem>) {
+        val array = JSONArray()
+        items.take(200).forEach { item ->
+            array.put(
+                JSONObject().apply {
+                    put("id", item.id)
+                    put("thumbnailUri", item.thumbnailUri?.toString() ?: JSONObject.NULL)
+                    put("fileName", item.fileName)
+                    put("originalUri", item.originalUri?.toString() ?: JSONObject.NULL)
+                    put("processedAt", item.processedAt)
+                    put("fps", item.outputFps)
+                    put("resolution", item.outputResolution)
+                    put("codec", item.codec.name)
+                    put("size", item.fileSizeBytes)
+                    put("outputUri", item.outputUri?.toString() ?: JSONObject.NULL)
+                    put("engine", item.processingEngine.name)
+                    put("container", item.container.name)
+                }
+            )
+        }
+        preferences.edit().putString("history", array.toString()).apply()
+    }
+
+    private fun restorePersistentState(): Pair<UserSettings, List<HistoryItem>> {
+        val settings = runCatching {
+            UserSettings(
+                targetFps = preferences.getInt("fps", 60).coerceIn(30, 120),
+                targetResolution = enumOrDefault(
+                    preferences.getString("resolution", null), VideoOutputResolution.FULL_HD_1080
+                ),
+                videoCodec = enumOrDefault(preferences.getString("codec", null), VideoCodec.H265),
+                container = enumOrDefault(preferences.getString("container", null), VideoContainer.MP4),
+                bitrateMbps = preferences.getInt("bitrate", 16).coerceIn(2, 100),
+                isSafeThermal = preferences.getBoolean("safeThermal", true),
+                isAutoClean = preferences.getBoolean("autoClean", true),
+                preserveAudio = preferences.getBoolean("preserveAudio", true),
+                processingEngine = enumOrDefault(
+                    preferences.getString("engine", null), ProcessingEngine.RIFE_AI
+                )
+            )
+        }.getOrDefault(UserSettings())
+        val history = runCatching {
+            val json = JSONArray(preferences.getString("history", "[]").orEmpty())
+            buildList {
+                for (index in 0 until json.length()) {
+                    val row = json.getJSONObject(index)
+                    add(
+                        HistoryItem(
+                            id = row.optString("id").ifBlank { UUID.randomUUID().toString() },
+                            thumbnailUri = row.optNullableUri("thumbnailUri"),
+                            fileName = row.optString("fileName", "视频"),
+                            originalUri = row.optNullableUri("originalUri"),
+                            processedAt = row.optLong("processedAt", System.currentTimeMillis()),
+                            outputFps = row.optInt("fps", 60),
+                            outputResolution = row.optString("resolution", "原始"),
+                            codec = enumOrDefault(row.optString("codec", null), VideoCodec.H264),
+                            fileSizeBytes = row.optLong("size", 0L),
+                            outputUri = row.optNullableUri("outputUri"),
+                            processingEngine = enumOrDefault(
+                                row.optString("engine", null), ProcessingEngine.RIFE_AI
+                            ),
+                            container = enumOrDefault(
+                                row.optString("container", null), VideoContainer.MP4
+                            )
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+        return settings to history
+    }
+
+    private fun JSONObject.optNullableUri(key: String): android.net.Uri? {
+        val value = optString(key, "").takeIf { it.isNotBlank() && it != "null" } ?: return null
+        return runCatching { android.net.Uri.parse(value) }.getOrNull()
+    }
+
+    private inline fun <reified T : Enum<T>> enumOrDefault(value: String?, fallback: T): T {
+        return runCatching { enumValueOf<T>(value ?: "") }.getOrDefault(fallback)
     }
 }
