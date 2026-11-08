@@ -147,9 +147,12 @@ class VideoProcessingCoordinator(context: Context) {
                         setExtractorSource(audioExtractor, request.source.uri)
                         audioExtractorOpened = true
                         val sourceAudioTrack = findTrack(audioExtractor, "audio/")
-                            ?: throw IOException("已开启保留音频，但源文件没有音轨。")
-                        audioTrack = muxer.addTrack(audioExtractor.getTrackFormat(sourceAudioTrack))
-                        audioExtractor.selectTrack(sourceAudioTrack)
+                        if (sourceAudioTrack != null) {
+                            audioTrack = muxer.addTrack(audioExtractor.getTrackFormat(sourceAudioTrack))
+                            audioExtractor.selectTrack(sourceAudioTrack)
+                        } else {
+                            onStatus("源视频没有音轨，将继续生成无声视频")
+                        }
                     }
 
                     var videoMuxerTrack = -1
