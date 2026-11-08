@@ -105,6 +105,7 @@ fun HomeScreen(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri -> uri?.let(onVideoPicked) }
     )
+    val dashedOutlineColor = MaterialTheme.colorScheme.outline
 
     Column(
         modifier = Modifier
