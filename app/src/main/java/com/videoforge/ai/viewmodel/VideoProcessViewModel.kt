@@ -113,6 +113,7 @@ data class VideoProcessUiState(
     val progressData: ProgressData = ProgressData(),
     val isParameterSheetVisible: Boolean = false,
     val isPaused: Boolean = false,
+    val isProcessingActive: Boolean = false,
     val processedOutputUri: Uri? = null,
     val resultFileSizeBytes: Long = 0L,
     val cleanedTempBytes: Long = 0L,
@@ -204,6 +205,18 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun showProcessing() {
+        if (_uiState.value.isProcessingActive) {
+            _uiState.update {
+                it.copy(
+                    currentTab = MainTab.HOME,
+                    currentPage = VideoPageRoute.Processing,
+                    isParameterSheetVisible = false
+                )
+            }
+        }
+    }
+
     fun openBenchmark() {
         _uiState.update {
             it.copy(
@@ -221,6 +234,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                 currentPage = VideoPageRoute.Processing,
                 isParameterSheetVisible = false,
                 isPaused = false,
+                isProcessingActive = true,
                 statusMessage = "正在重新连接后台处理任务…"
             )
         }
@@ -295,6 +309,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                 isParameterSheetVisible = false,
                 progressData = ProgressData(),
                 isPaused = false,
+                isProcessingActive = true,
                 processedOutputUri = null,
                 resultFileSizeBytes = 0L,
                 cleanedTempBytes = 0L,
@@ -349,6 +364,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                 } else {
                     "处理已完成，视频已保存到记录。"
                 },
+                isProcessingActive = false,
                 selectedVideo = if (wasViewingTask) source else state.selectedVideo,
                 processedOutputUri = if (wasViewingTask) outputUri else state.processedOutputUri,
                 resultFileSizeBytes = if (wasViewingTask) fileSizeBytes else state.resultFileSizeBytes,
@@ -429,6 +445,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
             it.copy(
                 currentTab = MainTab.HOME,
                 currentPage = VideoPageRoute.Home,
+                isProcessingActive = false,
                 progressData = it.progressData.copy(
                     progressPercent = 0f,
                     estimatedRemainingTime = "已取消"
@@ -447,6 +464,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                 currentPage = VideoPageRoute.Home,
                 isParameterSheetVisible = false,
                 isPaused = false,
+                isProcessingActive = false,
                 statusMessage = message
             )
         }
