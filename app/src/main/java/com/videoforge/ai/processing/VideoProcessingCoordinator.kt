@@ -92,7 +92,7 @@ class VideoProcessingCoordinator(context: Context) {
                 var encoderEos = false
 
                 try {
-                    videoExtractor.setDataSource(app, request.source.uri, null)
+                    setExtractorSource(videoExtractor, request.source.uri)
                     videoExtractorOpened = true
                     val sourceVideoTrack = findTrack(videoExtractor, "video/")
                         ?: throw IOException("源文件没有视频轨道。")
@@ -144,7 +144,7 @@ class VideoProcessingCoordinator(context: Context) {
                     if (rotation in listOf(90, 180, 270)) muxer.setOrientationHint(rotation)
 
                     if (request.preserveAudio) {
-                        audioExtractor.setDataSource(app, request.source.uri, null)
+                        setExtractorSource(audioExtractor, request.source.uri)
                         audioExtractorOpened = true
                         val sourceAudioTrack = findTrack(audioExtractor, "audio/")
                             ?: throw IOException("已开启保留音频，但源文件没有音轨。")
@@ -412,6 +412,14 @@ class VideoProcessingCoordinator(context: Context) {
         currentCoroutineContext().ensureActive()
     }
 
+    private fun setExtractorSource(extractor: MediaExtractor, uri: Uri) {
+        if (uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
+            extractor.setDataSource(uri.toString())
+        } else {
+            extractor.setDataSource(app, uri, null)
+        }
+    }
+
     private fun findTrack(extractor: MediaExtractor, prefix: String): Int? {
         for (i in 0 until extractor.trackCount) {
             val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
@@ -422,12 +430,15 @@ class VideoProcessingCoordinator(context: Context) {
 
     private fun findEncoder(codec: VideoCodec, width: Int, height: Int, fps: Int): MediaCodecInfo {
         val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { info -> info.isEncoder && info.supportedTypes.any { it.equals(codec.mimeType, true) } }
+            .sortedBy { info ->
+                if (Build.VERSION.SDK_INT >= 29 && info.isSoftwareOnly) 1 else 0
+            }
         return infos.firstOrNull { info ->
-            info.isEncoder && info.supportedTypes.any { it.equals(codec.mimeType, true) } &&
-                runCatching {
-                    info.getCapabilitiesForType(codec.mimeType).videoCapabilities
-                        .areSizeAndRateSupported(width, height, fps.toDouble())
-                }.getOrDefault(false)
+            runCatching {
+                info.getCapabilitiesForType(codec.mimeType).videoCapabilities
+                    .areSizeAndRateSupported(width, height, fps.toDouble())
+            }.getOrDefault(false)
         } ?: throw IOException(
             "设备没有支持 \${codec.title}、\${width}×\${height}、\${fps} FPS 的编码器。请降低分辨率/帧率或更换编码格式。"
         )
