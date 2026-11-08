@@ -211,6 +211,18 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun restoreActiveProcessing() {
+        _uiState.update {
+            it.copy(
+                currentTab = MainTab.HOME,
+                currentPage = VideoPageRoute.Processing,
+                isParameterSheetVisible = false,
+                isPaused = false,
+                statusMessage = "正在重新连接后台处理任务…"
+            )
+        }
+    }
+
     fun hideParameterSheet() {
         _uiState.update { it.copy(isParameterSheetVisible = false) }
     }
