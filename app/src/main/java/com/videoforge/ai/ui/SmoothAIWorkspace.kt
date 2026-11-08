@@ -1324,7 +1324,7 @@ private fun ProcessingWorkspace(
                 Icon(Icons.Default.Thermostat, contentDescription = null, tint = if (state.progressData.isOverheated) Danger else Aurora)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("设备温度", color = Muted, fontSize = 10.sp)
+                    Text("电池温度", color = Muted, fontSize = 10.sp)
                     Text(
                         state.progressData.currentTemperatureC?.let { String.format(Locale.US, "%.1f °C", it) } ?: "系统未提供",
                         color = if (state.progressData.isOverheated) Danger else Color.White,
@@ -1339,7 +1339,7 @@ private fun ProcessingWorkspace(
         if (state.progressData.isOverheated) {
             Spacer(Modifier.height(12.dp))
             Text(
-                if (state.userSettings.processingEngine == ProcessingEngine.FFMPEG) "系统温控达到严重等级时仅提示；只有持续达到临界等级 5 秒才会停止任务。" else "系统温控达到严重等级时继续处理；只有持续达到临界等级才会等待降温。",
+                "电池温度已达到 43°C 以上。系统热状态达到持续临界等级时才会介入，Android 自身温控始终有效。",
                 color = Danger,
                 fontSize = 12.sp
             )
