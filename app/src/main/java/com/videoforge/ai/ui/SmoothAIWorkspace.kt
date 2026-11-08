@@ -199,7 +199,8 @@ fun SmoothAIWorkspace(
     val showNavigation = state.currentPage in setOf(
         VideoPageRoute.Home,
         VideoPageRoute.History,
-        VideoPageRoute.Settings
+        VideoPageRoute.Settings,
+        VideoPageRoute.Processing
     )
 
     SmoothAITheme {
@@ -264,7 +265,8 @@ fun SmoothAIWorkspace(
                             processViewModel.setPaused(paused)
                             onPauseTask(paused)
                         },
-                        onCancel = onCancelTask
+                        onCancel = onCancelTask,
+                        onGoHome = processViewModel::backToHome
                     )
 
                     VideoPageRoute.Result -> ResultWorkspace(
@@ -368,6 +370,23 @@ private fun SmoothBottomNavigation(
 }
 
 @Composable
+private fun SmoothAIEmblem(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Brush.linearGradient(listOf(Aurora, Violet))),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.AutoAwesome,
+            contentDescription = "SmoothAI",
+            tint = Night,
+            modifier = Modifier.fillMaxSize(0.56f)
+        )
+    }
+}
+
+@Composable
 private fun HomeWorkspace(
     video: SelectedVideoInfo?,
     settings: UserSettings,
@@ -386,15 +405,7 @@ private fun HomeWorkspace(
             .padding(horizontal = 20.dp, vertical = 18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.linearGradient(listOf(Aurora, Violet))),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Night)
-            }
+            SmoothAIEmblem(Modifier.size(42.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("SmoothAI", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -1244,7 +1255,8 @@ private fun RepositoryCard(
 private fun ProcessingWorkspace(
     state: VideoProcessUiState,
     onPause: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onGoHome: () -> Unit
 ) {
     val progress = state.progressData.progressPercent.coerceIn(0f, 100f)
     val pulseTransition = rememberInfiniteTransition(label = "progressGlow")
@@ -1260,7 +1272,22 @@ private fun ProcessingWorkspace(
         modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("${state.userSettings.processingEngine.title.uppercase()} PROCESSING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SmoothAIEmblem(Modifier.size(54.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("SmoothAI", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "${state.userSettings.processingEngine.title.uppercase()} PROCESSING",
+                    color = Muted,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.6.sp
+                )
+            }
+        }
         state.statusMessage?.let { message ->
             Spacer(Modifier.height(12.dp))
             GlassPanel {
@@ -1312,11 +1339,20 @@ private fun ProcessingWorkspace(
         if (state.progressData.isOverheated) {
             Spacer(Modifier.height(12.dp))
             Text(
-                if (state.userSettings.processingEngine == ProcessingEngine.FFMPEG) "温度较高。FFmpeg 模式会在严重热状态下终止任务，请让设备冷却后重试。" else "温度较高。RIFE AI 会在严重热状态下等待降温。",
+                if (state.userSettings.processingEngine == ProcessingEngine.FFMPEG) "系统温控达到严重等级时仅提示；只有持续达到临界等级 5 秒才会停止任务。" else "系统温控达到严重等级时继续处理；只有持续达到临界等级才会等待降温。",
                 color = Danger,
                 fontSize = 12.sp
             )
         }
+        OutlinedButton(
+            onClick = onGoHome,
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Icon(Icons.Default.Home, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("返回主页 · 后台继续处理")
+        }
+        Spacer(Modifier.height(10.dp))
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
