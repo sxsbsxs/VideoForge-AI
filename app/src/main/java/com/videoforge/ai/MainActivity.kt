@@ -226,7 +226,7 @@ class MainActivity : ComponentActivity() {
     private fun observeProcessingWork(id: UUID) {
         workObserver?.let { observer -> observedWork?.removeObserver(observer) }
         val liveData = workManager.getWorkInfoByIdLiveData(id)
-        val observer = Observer<WorkInfo> { info ->
+        val observer = Observer<WorkInfo?> { info ->
             if (info == null) return@Observer
 
             if (info.state == WorkInfo.State.RUNNING) {
