@@ -110,23 +110,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadVideoMetadata(uri: Uri) {
-        lifecycleScopeLaunch {
-            val info = readVideoInfo(uri)
-            if (info != null) {
-                runCatching {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-                processViewModel.onVideoSelected(info)
-            } else {
-                processViewModel.setStatusMessage("无法读取该视频的元数据，请尝试选择本地视频文件。")
-            }
-        }
-    }
-
-    private fun loadVideoMetadata(uri: Uri) {
         lifecycleScope.launch {
             val info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { readVideoInfo(uri) }
             if (info != null) {
