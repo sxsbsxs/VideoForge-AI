@@ -29,6 +29,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -297,6 +298,8 @@ class FfmpegProcessingCoordinator(context: Context) {
     ) = suspendCancellableCoroutine<Unit> { continuation ->
         val sessionRef = AtomicReference<FFmpegSession?>(null)
         val thermalAbort = AtomicBoolean(false)
+        val thermalCriticalSince = AtomicLong(0L)
+        val thermalWarningShown = AtomicBoolean(false)
         val startedAt = SystemClock.elapsedRealtime()
         val logs = ArrayDeque<String>()
 
@@ -331,11 +334,32 @@ class FfmpegProcessingCoordinator(context: Context) {
             },
             { stats ->
                 if (!continuation.isActive) return@executeWithArgumentsAsync
-                if (thermalProtection && isSevereThermal()) {
-                    thermalAbort.set(true)
-                    sessionRef.get()?.let { FFmpegKit.cancel(it.getSessionId()) }
-                    onStatus("设备温度过高，FFmpeg 任务已触发温控停止。")
-                    return@executeWithArgumentsAsync
+                if (thermalProtection && Build.VERSION.SDK_INT >= 29) {
+                    val thermalStatus = runCatching {
+                        app.getSystemService(PowerManager::class.java)?.currentThermalStatus
+                    }.getOrNull() ?: PowerManager.THERMAL_STATUS_NONE
+
+                    // SEVERE is an advisory state and must not kill a job by itself.
+                    if (thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE &&
+                        thermalWarningShown.compareAndSet(false, true)
+                    ) {
+                        onStatus("系统报告严重温控等级；任务会继续运行，Android 系统仍保留自身温控。")
+                    }
+
+                    if (thermalStatus >= PowerManager.THERMAL_STATUS_CRITICAL) {
+                        val now = SystemClock.elapsedRealtime()
+                        val firstCriticalAt = thermalCriticalSince.updateAndGet { previous ->
+                            if (previous == 0L) now else previous
+                        }
+                        if (now - firstCriticalAt >= 5_000L) {
+                            thermalAbort.set(true)
+                            sessionRef.get()?.let { FFmpegKit.cancel(it.getSessionId()) }
+                            onStatus("系统持续报告临界温控等级超过 5 秒，已停止任务保护设备。")
+                            return@executeWithArgumentsAsync
+                        }
+                    } else {
+                        thermalCriticalSince.set(0L)
+                    }
                 }
                 val timeMs = stats.getTime().toLong().coerceAtLeast(0L)
                 val fraction = if (durationMs > 0L) (timeMs.toDouble() / durationMs).coerceIn(0.0, 0.99) else 0.0
@@ -362,12 +386,6 @@ class FfmpegProcessingCoordinator(context: Context) {
                 if (file.delete()) removedBytes += size
             }
         return removedBytes
-    }
-
-    private fun isSevereThermal(): Boolean {
-        if (Build.VERSION.SDK_INT < 29) return false
-        val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
     }
 
     private fun publishOutput(temp: File, sourceName: String, container: VideoContainer): Uri {
