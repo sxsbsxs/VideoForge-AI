@@ -7,6 +7,11 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# The upstream CLI enables OpenMP globally when the host toolchain finds it.
+# Android NDK does not automatically package libomp into our APK, so disable
+# that optional path and use ncnn's own thread implementation instead.
+set(CMAKE_DISABLE_FIND_PACKAGE_OpenMP TRUE)
+
 # Keep the native dependency build limited to the inference features used by RIFE.
 set(NCNN_VULKAN ON CACHE BOOL "" FORCE)
 set(NCNN_VULKAN_ONLINE_SPIRV ON CACHE BOOL "" FORCE)
