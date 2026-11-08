@@ -78,25 +78,8 @@ if(NCNN_CMAKE_PATCHED STREQUAL NCNN_CMAKE_TEXT)
 endif()
 file(WRITE "${RIFE_NCNN_CMAKE}" "${NCNN_CMAKE_PATCHED}")
 
-# Make model-load errors visible to the JNI layer instead of silently continuing
-# with an uninitialized RIFE network.
-file(READ "${RIFE_CPP}" RIFE_CPP_TEXT)
-string(REPLACE
-    "static void load_param_model(ncnn::Net& net, const std::string& modeldir, const char* name)"
-    "static int load_param_model(ncnn::Net& net, const std::string& modeldir, const char* name)"
-    RIFE_CPP_TEXT RIFE_CPP_TEXT)
-string(REPLACE
-    "    net.load_param(parampath);\n    net.load_model(modelpath);"
-    "    const int param_status = net.load_param(parampath);\n    if (param_status != 0) return param_status;\n    return net.load_model(modelpath);"
-    RIFE_CPP_PATCHED "${RIFE_CPP_TEXT}")
-string(REPLACE
-    "    load_param_model(flownet, modeldir, \"flownet\");"
-    "    if (load_param_model(flownet, modeldir, \"flownet\") != 0) return -1;"
-    RIFE_CPP_PATCHED_CHECKED "${RIFE_CPP_PATCHED}")
-if(RIFE_CPP_PATCHED_CHECKED STREQUAL RIFE_CPP_TEXT)
-    message(FATAL_ERROR "Unable to add RIFE model-load error checking.")
-endif()
-file(WRITE "${RIFE_CPP}" "${RIFE_CPP_PATCHED_CHECKED}")
+# The Kotlin installer verifies both pinned model files by exact Git blob hash before
+# the JNI layer loads them. Keep the upstream RIFE source untouched here.
 
 add_subdirectory("${RIFE_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/rife-upstream")
 
