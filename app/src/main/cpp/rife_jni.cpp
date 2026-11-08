@@ -122,7 +122,7 @@ Java_com_videoforge_ai_nativeengine_Rife46Engine_nativeCreateModel(
     g_sessions.emplace(handle, session);
     __android_log_print(ANDROID_LOG_INFO, kLogTag, "RIFE 4.6 session created (%s).",
                         session->use_vulkan ? "Vulkan" : "CPU");
-    return 0;
+    return handle;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
