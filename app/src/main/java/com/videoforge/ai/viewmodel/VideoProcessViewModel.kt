@@ -134,12 +134,14 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
     private val _uiState = MutableStateFlow(
         VideoProcessUiState(
             userSettings = restored.first,
-            historyList = restored.second
+            historyList = restored.second,
+            selectedVideo = restoreSelectedVideo()
         )
     )
     val uiState: StateFlow<VideoProcessUiState> = _uiState.asStateFlow()
 
     fun onVideoSelected(video: SelectedVideoInfo) {
+        persistSelectedVideo(video)
         _uiState.update {
             it.copy(
                 currentTab = MainTab.HOME,
@@ -353,6 +355,7 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
             "4K", "2160P" -> VideoOutputResolution.UHD_4K
             else -> VideoOutputResolution.SOURCE
         }
+        source?.let(::persistSelectedVideo)
         _uiState.update { current ->
             current.copy(
                 currentTab = MainTab.HOME,
@@ -401,7 +404,8 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                     progressPercent = 0f,
                     estimatedRemainingTime = "已取消"
                 ),
-                isPaused = false
+                isPaused = false,
+                statusMessage = null
             )
         }
     }
@@ -420,6 +424,33 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
 
     fun setStatusMessage(message: String?) {
         _uiState.update { it.copy(statusMessage = message) }
+    }
+
+    private fun persistSelectedVideo(video: SelectedVideoInfo) {
+        preferences.edit()
+            .putString("selected_uri", video.uri.toString())
+            .putString("selected_name", video.fileName)
+            .putLong("selected_duration", video.durationMs)
+            .putInt("selected_width", video.width)
+            .putInt("selected_height", video.height)
+            .putFloat("selected_fps", video.originalFrameRate ?: -1f)
+            .putBoolean("selected_network", video.isNetworkSource)
+            .apply()
+    }
+
+    private fun restoreSelectedVideo(): SelectedVideoInfo? {
+        val uri = preferences.getString("selected_uri", null)?.let {
+            runCatching { Uri.parse(it) }.getOrNull()
+        } ?: return null
+        return SelectedVideoInfo(
+            uri = uri,
+            fileName = preferences.getString("selected_name", "video") ?: "video",
+            durationMs = preferences.getLong("selected_duration", 0L),
+            width = preferences.getInt("selected_width", 0),
+            height = preferences.getInt("selected_height", 0),
+            originalFrameRate = preferences.getFloat("selected_fps", -1f).takeIf { it > 0f },
+            isNetworkSource = preferences.getBoolean("selected_network", false)
+        )
     }
 
     private fun persistSettings(settings: UserSettings) {
