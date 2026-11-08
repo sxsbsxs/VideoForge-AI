@@ -111,7 +111,13 @@ class VideoProcessViewModel : ViewModel() {
     }
 
     fun setOverheated(overheated: Boolean) {
-        _uiState.update { it.copy(isOverheated = overheated) }
+        _uiState.update {
+            it.copy(
+                isOverheated = overheated,
+                // Thermal protection pauses the UI immediately; cooling down does not auto-resume work.
+                isPaused = if (overheated) true else it.isPaused
+            )
+        }
     }
 
     fun setPaused(paused: Boolean) {
