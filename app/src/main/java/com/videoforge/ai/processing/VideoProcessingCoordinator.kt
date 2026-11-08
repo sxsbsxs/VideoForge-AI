@@ -51,7 +51,10 @@ class VideoProcessingCoordinator(context: Context) {
     private val app = context.applicationContext
     @Volatile private var paused = false
 
-    fun setPaused(value: Boolean) { paused = value }
+    fun setPaused(value: Boolean) {
+        paused = value
+        ProcessingRuntime.paused = value
+    }
 
     suspend fun process(
         request: VideoProcessRequest,
@@ -475,7 +478,7 @@ class VideoProcessingCoordinator(context: Context) {
     }
 
     private suspend fun waitUntilSafe(thermalProtection: Boolean, onStatus: (String?) -> Unit) {
-        while (paused) {
+        while (paused || ProcessingRuntime.paused) {
             currentCoroutineContext().ensureActive()
             onStatus("任务已暂停")
             delay(200L)
