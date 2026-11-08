@@ -279,7 +279,24 @@ class MainActivity : ComponentActivity() {
         workObserver?.let { observer -> observedWork?.removeObserver(observer) }
         val liveData = workManager.getWorkInfoByIdLiveData(id)
         val observer = Observer<WorkInfo?> { info ->
-            if (info == null) return@Observer
+            if (info == null) {
+                // The saved UUID may be stale after an interrupted enqueue or app upgrade.
+                // Recover by the stable unique-work name instead of leaving a dead progress screen.
+                lifecycleScope.launch {
+                    val recovered = withContext(Dispatchers.IO) {
+                        workManager.getWorkInfosForUniqueWork(VideoProcessingWorker.TAG)
+                            .get()
+                            .firstOrNull { !it.state.isFinished }
+                    }
+                    if (recovered != null) {
+                        attachToExistingWork(recovered)
+                    } else if (activeWorkId == id) {
+                        clearObservedWork()
+                        processViewModel.processingFailed("没有找到正在运行的任务。请重新选择视频。")
+                    }
+                }
+                return@Observer
+            }
 
             if (!info.state.isFinished) {
                 processViewModel.attachActiveRequest(
