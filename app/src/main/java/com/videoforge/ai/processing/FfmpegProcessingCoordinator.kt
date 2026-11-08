@@ -87,9 +87,14 @@ class FfmpegProcessingCoordinator(context: Context) {
             if (request.container == VideoContainer.MKV) {
                 args += listOf("-map", "0:s?", "-c:s", "copy", "-f", "matroska")
             } else {
-                // MP4 subtitle conversion is format-specific. Omit subtitles rather than
-                // failing a valid transcode on bitmap subtitle tracks.
-                args += listOf("-sn", "-movflags", "+faststart", "-f", "mp4")
+                val canConvertTextSubtitles = hasMovTextCompatibleSubtitles(inputPath, input.isPlaylist)
+                if (canConvertTextSubtitles) {
+                    onStatus("检测到文本字幕，正在转换为 MP4 mov_text 字幕")
+                    args += listOf("-map", "0:s?", "-c:s", "mov_text", "-movflags", "+faststart", "-f", "mp4")
+                } else {
+                    onStatus("MP4 输出：未检测到可转换的文本字幕，跳过字幕轨道")
+                    args += listOf("-sn", "-movflags", "+faststart", "-f", "mp4")
+                }
             }
             args += outputTemp.absolutePath
 
@@ -225,6 +230,32 @@ class FfmpegProcessingCoordinator(context: Context) {
         val session = FFprobeKit.executeWithArguments(args.toTypedArray())
         if (!ReturnCode.isSuccess(session.returnCode)) return 0L
         return session.getOutput()?.trim()?.toDoubleOrNull()?.times(1000.0)?.toLong()?.coerceAtLeast(0L) ?: 0L
+    }
+
+    private fun hasMovTextCompatibleSubtitles(path: String, isPlaylist: Boolean): Boolean {
+        val args = mutableListOf("-v", "error")
+        if (isPlaylist) {
+            args += listOf("-protocol_whitelist", "https,tls,tcp,crypto,data")
+        }
+        args += listOf(
+            "-select_streams", "s",
+            "-show_entries", "stream=codec_name",
+            "-of", "csv=p=0",
+            path
+        )
+        val session = FFprobeKit.executeWithArguments(args.toTypedArray())
+        if (!ReturnCode.isSuccess(session.returnCode)) return false
+        val codecs = session.getOutput().orEmpty()
+            .lineSequence()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .toList()
+        if (codecs.isEmpty()) return false
+
+        val supportedTextCodecs = setOf(
+            "subrip", "ass", "ssa", "webvtt", "mov_text", "text"
+        )
+        return codecs.all { it in supportedTextCodecs }
     }
 
     private fun findEncoder(codec: VideoCodec): String {
