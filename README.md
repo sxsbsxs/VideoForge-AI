@@ -17,7 +17,9 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - History list with generated video-frame thumbnails
 - On-device RIFE 4.6 benchmark screen with device, RAM, Vulkan backend and thermal status
 - Extreme-performance and temporary-fragment cleanup preferences
-- Canvas ring progress and thermal warning UI
+- Canvas ring progress and calibrated thermal warning UI
+- Processing can return to Home, History or Settings while the WorkManager foreground task continues
+- SmoothAI launcher icon reuses the same Aurora spark emblem shown in the Home header
 - StateFlow-backed ViewModel
 - Pinned RIFE 4.6 native source built with Android NDK and CMake
 - JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
@@ -25,7 +27,8 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - Source audio packet reuse with timestamp interleaving, aspect-ratio-preserving output sizing, MediaStore export to Movies/SmoothAI
 - Foreground WorkManager processing with progress restoration after app relaunch; RIFE supports cooperative pause/cancel, FFmpeg supports cancel but its pause control is disabled
 - The foreground notification updates progress and includes a direct cancel action
-- Android severe-thermal-status protection; stale temporary cache files are cleaned only when auto-clean is enabled
+- Thermal guard treats Android SEVERE as advisory; only a sustained CRITICAL state (5 seconds) yields/stops processing, while Android's own system thermal controls remain active
+- Stale temporary cache files are cleaned only when auto-clean is enabled
 - Vulkan device detection with optional CPU fallback
 - First-run RIFE model downloader with file size and Git blob SHA-1 verification
 
@@ -93,7 +96,7 @@ Current constraints:
 - RIFE pause is cooperative between frames. FFmpeg pause is not exposed; cancellation is supported for both engines.
 - Audio handling differs: RIFE reuses compatible compressed audio packets; FFmpeg transcodes MP4 audio to AAC and copies MKV audio where possible.
 
-The RIFE model is downloaded on first use into app-private storage and checksum-verified. Severe Android thermal status causes the coordinator to wait when thermal protection is enabled; this does not bypass Android's own thermal controls.
+The RIFE model is downloaded on first use into app-private storage and checksum-verified. A single Android SEVERE thermal report does not interrupt processing. RIFE only waits after a sustained CRITICAL report; FFmpeg only stops after CRITICAL remains active for five seconds. Android's own thermal throttling and shutdown protections are never bypassed.
 
 A successful GitHub Actions APK build validates compilation and packaging only. Runtime throughput, output quality, audio compatibility and thermal stability still require testing on the target Android device.
 
