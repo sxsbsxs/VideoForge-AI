@@ -1,29 +1,36 @@
-# VideoForge AI
+# VideoSmoothAI
 
-An open-source Android video enhancement app. The project is being built in stages.
+Open-source Android video-smoothing app UI built with Kotlin, Jetpack Compose, Material 3 and MVVM.
 
-## Current status
+## Included UI
 
-- [x] Android / Kotlin / Jetpack Compose project scaffold
-- [x] GitHub Actions debug APK build workflow
-- [x] Source video picker and output configuration UI
-- [ ] RIFE 4.6 native inference (NCNN + Vulkan)
-- [ ] FFmpeg decode / encode and audio preservation
-- [ ] AI super-resolution model integration
-- [ ] Segmented processing, verified checkpoints and resume
-- [ ] Android thermal monitoring and safe throttling
-- [ ] Task history and storage-safe temporary-file cleanup
+- Home screen with Android Photo Picker video selection
+- Video metadata card (name, duration, resolution and source frame rate when metadata is available)
+- 60 FPS / 120 FPS parameter selection
+- Extreme-performance and temporary-fragment cleanup switches
+- Processing screen with a Canvas ring progress indicator
+- Thermal-warning banner, pause/resume and cancel callback hooks
+- System light/dark theme support
+- ViewModel backed by StateFlow
 
-**Important:** 4K output selection in this early preview is configuration UI only. It does not yet perform AI upscaling. The RIFE and FFmpeg processing pipeline is not connected yet.
+## Architecture
+
+- `viewmodel/VideoProcessViewModel.kt`: UI state, navigation state and user actions
+- `ui/VideoSmoothScreens.kt`: Home, Settings, Processing and Result composables
+- `MainActivity.kt`: Activity Result video picker, background metadata extraction and engine callback integration points
+
+## Video engine status
+
+This repository currently implements the UI and state-management layer only. It does **not** yet decode, interpolate, upscale, encode or export video. Connect the native RIFE / Vulkan and FFmpeg processing engine through the callbacks in `MainActivity`:
+
+- `onStartProcess(request)`
+- `onPauseTask(shouldPause)`
+- `onCancelTask()`
+
+The processing screen can be driven by calling the ViewModel's `updateProgress(...)` and `setOverheated(...)` methods from the future processing coordinator.
+
+The "极速发热模式" switch is only a user preference at this stage; it does not override Android thermal limits. Thermal monitoring and safe throttling must be implemented by the processing coordinator.
 
 ## Build
 
-Push to `main` or run the **Android APK** workflow manually. The debug APK is uploaded as a workflow artifact.
-
-## Target output options
-
-The planned UI supports original / 30 / 60 / 90 / 120 FPS and original / 720p / 1080p / 1440p / 2K / 4K output while preserving source aspect ratio.
-
-## License
-
-MIT for original project code. Third-party components and model weights will retain their own licenses; notices will be added before bundling them.
+Push to `main` or run the **Android APK** GitHub Actions workflow. The debug APK is uploaded as an Actions artifact.
