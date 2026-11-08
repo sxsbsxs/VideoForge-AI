@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
+import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
 import com.videoforge.ai.ui.VideoSmoothAIApp
 import com.videoforge.ai.ui.VideoSmoothAITheme
 import com.videoforge.ai.viewmodel.SelectedVideoInfo
@@ -20,6 +21,7 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val processViewModel: VideoProcessViewModel by viewModels()
+    private val benchmarkViewModel: DeviceBenchmarkViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,7 +33,8 @@ class MainActivity : ComponentActivity() {
                     onVideoPicked = ::loadVideoMetadata,
                     onStartProcess = ::onStartProcess,
                     onPauseTask = ::onPauseTask,
-                    onCancelTask = ::onCancelTask
+                    onCancelTask = ::onCancelTask,
+                    benchmarkViewModel = benchmarkViewModel
                 )
             }
         }
