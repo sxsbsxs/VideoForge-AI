@@ -14,10 +14,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Accept Android SDK licenses and install native toolchain
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install Android native toolchain
+        run: sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
