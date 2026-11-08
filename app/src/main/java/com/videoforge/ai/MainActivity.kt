@@ -181,7 +181,9 @@ class MainActivity : ComponentActivity() {
                 processViewModel.processingFailed("处理失败：$message")
             } finally {
                 processingCoordinator.setPaused(false)
-                processingJob = null
+                if (processingJob === kotlinx.coroutines.currentCoroutineContext()[Job]) {
+                    processingJob = null
+                }
             }
         }
     }
