@@ -82,6 +82,7 @@ The coordinator prefers a hardware encoder when it advertises the requested size
 Current constraints:
 - MP4 is the only export container. MKV is disabled in the parameter sheet until a Matroska muxer is implemented.
 - Processing is limited to media that Android's `MediaExtractor` and installed `MediaCodec` components can decode. Preview support in ExoPlayer does not imply every preview URL is processable.
+- Resolution changes currently use conventional aspect-ratio-preserving scaling; RIFE 4.6 provides frame interpolation, not AI super-resolution. No AI upscaling model is integrated yet.
 - The current YUV-to-RGB path is an SDR conversion path; HDR / wide-gamut metadata and HDR transfer characteristics are not preserved end-to-end.
 - Subtitles, chapter metadata, DRM-protected media and interrupted-task resume are not implemented.
 - Source audio is copied without transcoding. If the source audio format cannot be added to the MP4 muxer, processing reports an error rather than silently dropping audio.
