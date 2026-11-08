@@ -63,7 +63,7 @@ class VideoProcessingCoordinator(context: Context) {
         require(request.targetFrameRate in 30..120) { "目标帧率必须在 30–120 FPS 之间。" }
 
         val startedAt = SystemClock.elapsedRealtime()
-        val temp = File(app.cacheDir, "smoothai_\${System.currentTimeMillis()}.mp4")
+        val temp = File(app.cacheDir, "smoothai_${System.currentTimeMillis()}.mp4")
         var published: Uri? = null
 
         try {
@@ -260,8 +260,9 @@ class VideoProcessingCoordinator(context: Context) {
                         drainEncoder(false)
                     }
 
-                    onStatus("RIFE 后端：\${if (rife.backend.name == "VULKAN") "Vulkan GPU" else "CPU"}")
-                    onStatus("输出：\${outWidth}×\${outHeight} · \${request.targetFrameRate} FPS · \${request.videoCodec.title}")
+                    val backendLabel = if (rife.backend.name == "VULKAN") "Vulkan GPU" else "CPU"
+                    onStatus("RIFE 后端：$backendLabel")
+                    onStatus("输出：${outWidth}×${outHeight} · ${request.targetFrameRate} FPS · ${request.videoCodec.title}")
                     onProgress(5f, "正在解码视频", ProcessingStage.Extraction)
 
                     while (!decoderOutputEos) {
@@ -478,7 +479,7 @@ class VideoProcessingCoordinator(context: Context) {
                     .areSizeAndRateSupported(width, height, fps.toDouble())
             }.getOrDefault(false)
         } ?: throw IOException(
-            "设备没有支持 \${codec.title}、\${width}×\${height}、\${fps} FPS 的编码器。请降低分辨率/帧率或更换编码格式。"
+            "设备没有支持 ${codec.title}、${width}×${height}、${fps} FPS 的编码器。请降低分辨率/帧率或更换编码格式。"
         )
     }
 
@@ -650,7 +651,7 @@ class VideoProcessingCoordinator(context: Context) {
     private fun publishOutput(temp: File, sourceName: String): Uri {
         val base = sourceName.substringBeforeLast('.', sourceName)
             .replace(Regex("[^A-Za-z0-9._-]"), "_").take(40).ifBlank { "video" }
-        val name = "\${base}_SmoothAI_\${System.currentTimeMillis()}.mp4"
+        val name = "${base}_SmoothAI_${System.currentTimeMillis()}.mp4"
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, name)
@@ -690,6 +691,6 @@ class VideoProcessingCoordinator(context: Context) {
 
     private fun formatRemaining(seconds: Long): String {
         val s = seconds.coerceAtLeast(0L)
-        return if (s >= 60L) "预计剩余 \${s / 60}分\${s % 60}秒" else "预计剩余 \${s}秒"
+        return if (s >= 60L) "预计剩余 ${s / 60}分${s % 60}秒" else "预计剩余 ${s}秒"
     }
 }
