@@ -34,7 +34,6 @@ FetchContent_Declare(
     rife_upstream
     GIT_REPOSITORY https://github.com/nihui/rife-ncnn-vulkan.git
     GIT_TAG a7532fc3f9f8f008cd6eecd6f2ffe2a9698e0cf7
-    GIT_SHALLOW TRUE
     GIT_SUBMODULES src/ncnn src/libwebp
     GIT_SUBMODULES_RECURSE TRUE
     GIT_PROGRESS TRUE
