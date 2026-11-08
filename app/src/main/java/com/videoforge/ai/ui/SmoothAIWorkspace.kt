@@ -1,5 +1,7 @@
 package com.videoforge.ai.ui
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.content.Intent
 import android.media.MediaCodecList
 import android.net.Uri
@@ -85,6 +87,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,6 +100,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -127,6 +132,8 @@ import com.videoforge.ai.viewmodel.VideoPageRoute
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import com.videoforge.ai.viewmodel.VideoProcessUiState
 import com.videoforge.ai.viewmodel.VideoProcessViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -874,15 +881,13 @@ private fun HistoryWorkspace(
 private fun HistoryCard(item: HistoryItem, onClick: () -> Unit) {
     GlassPanel(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
+            VideoThumbnail(
+                uri = item.thumbnailUri ?: item.outputUri,
+                modifier = Modifier
                     .size(width = 86.dp, height = 64.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF101B2D)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Movie, contentDescription = null, tint = Aurora, modifier = Modifier.size(28.dp))
-            }
+                    .background(Color(0xFF101B2D))
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(item.fileName, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -890,6 +895,36 @@ private fun HistoryCard(item: HistoryItem, onClick: () -> Unit) {
                 Text("${item.codec.title}  ·  ${formatDate(item.processedAt)}", color = Muted, fontSize = 10.sp)
             }
             Text(formatBytes(item.fileSizeBytes), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun VideoThumbnail(uri: Uri?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, uri) {
+        value = if (uri == null) null else withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                retriever.getFrameAtTime(700_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = "视频缩略图",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(Icons.Default.Movie, contentDescription = null, tint = Aurora, modifier = Modifier.size(28.dp))
         }
     }
 }
@@ -1087,6 +1122,12 @@ private fun ProcessingWorkspace(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("AI PROCESSING", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+        state.statusMessage?.let { message ->
+            Spacer(Modifier.height(12.dp))
+            GlassPanel {
+                Text(message, color = Color(0xFFFFD18A), fontSize = 11.sp)
+            }
+        }
         Spacer(Modifier.height(22.dp))
         Box(Modifier.size(250.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
