@@ -308,7 +308,10 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
                     estimatedRemainingTime = remainingTime,
                     currentStage = stage
                 ),
-                currentPage = if (stage == ProcessingStage.Completed) {
+                currentPage = if (
+                    stage == ProcessingStage.Completed &&
+                    current.currentPage == VideoPageRoute.Processing
+                ) {
                     VideoPageRoute.Result
                 } else current.currentPage
             )
@@ -334,7 +337,14 @@ class VideoProcessViewModel(application: Application) : AndroidViewModel(applica
         val newHistory = listOf(item) + current.historyList
         _uiState.update {
             it.copy(
-                currentPage = VideoPageRoute.Result,
+                currentPage = if (current.currentPage == VideoPageRoute.Processing) {
+                    VideoPageRoute.Result
+                } else current.currentPage,
+                statusMessage = if (current.currentPage == VideoPageRoute.Processing) {
+                    current.statusMessage
+                } else {
+                    "处理已完成，视频已保存到记录。"
+                },
                 processedOutputUri = outputUri,
                 resultFileSizeBytes = fileSizeBytes,
                 cleanedTempBytes = cleanedTempBytes,
