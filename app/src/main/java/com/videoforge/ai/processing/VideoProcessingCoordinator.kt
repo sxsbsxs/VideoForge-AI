@@ -163,6 +163,41 @@ class VideoProcessingCoordinator(context: Context) {
                     var lastPercent = -1
                     val intervalUs = 1_000_000L / request.targetFrameRate
                     val bufferInfo = MediaCodec.BufferInfo()
+                    var audioSeeked = false
+                    val audioBufferSize = if (audioTrack >= 0) {
+                        runCatching {
+                            audioExtractor.getTrackFormat(findTrack(audioExtractor, "audio/")!!)
+                                .getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+                        }.getOrDefault(1 shl 20).coerceIn(64 * 1024, 8 * 1024 * 1024)
+                    } else 0
+                    val audioBuffer = if (audioTrack >= 0) ByteBuffer.allocateDirect(audioBufferSize) else null
+                    val audioInfo = MediaCodec.BufferInfo()
+
+                    fun writeAudioUntil(videoPtsUs: Long, flushRemaining: Boolean = false) {
+                        if (audioTrack < 0 || audioBuffer == null || !muxerStarted) return
+                        if (!audioSeeked) {
+                            audioExtractor.seekTo(sourceBasePts, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                            audioSeeked = true
+                        }
+                        while (true) {
+                            audioBuffer.clear()
+                            val sampleSize = audioExtractor.readSampleData(audioBuffer, 0)
+                            if (sampleSize < 0) break
+                            val absolutePts = audioExtractor.sampleTime
+                            if (absolutePts < sourceBasePts) {
+                                audioExtractor.advance()
+                                continue
+                            }
+                            val relativePts = absolutePts - sourceBasePts
+                            if (relativePts > durationUs) break
+                            if (!flushRemaining && relativePts > videoPtsUs) break
+                            audioInfo.set(0, sampleSize, relativePts, audioExtractor.sampleFlags)
+                            audioBuffer.position(0)
+                            audioBuffer.limit(sampleSize)
+                            muxer!!.writeSampleData(audioTrack, audioBuffer, audioInfo)
+                            audioExtractor.advance()
+                        }
+                    }
 
                     fun startMuxer(format: MediaFormat) {
                         if (muxerStarted) return
@@ -188,6 +223,9 @@ class VideoProcessingCoordinator(context: Context) {
                                     if (bufferInfo.size > 0 && muxerStarted && output != null &&
                                         bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
                                     ) {
+                                        // Interleave source audio packets before the next video
+                                        // packet so MediaMuxer receives monotonically ordered A/V samples.
+                                        writeAudioUntil(bufferInfo.presentationTimeUs)
                                         output.position(bufferInfo.offset)
                                         output.limit(bufferInfo.offset + bufferInfo.size)
                                         muxer!!.writeSampleData(videoMuxerTrack, output, bufferInfo)
@@ -356,8 +394,8 @@ class VideoProcessingCoordinator(context: Context) {
                     if (!muxerStarted) throw IOException("编码器未能生成有效的视频轨道。")
 
                     if (request.preserveAudio && audioTrack >= 0) {
-                        onStatus("视频编码完成，正在复用原始音轨")
-                        copyAudio(audioExtractor, audioTrack, muxer!!, sourceBasePts, durationUs)
+                        onStatus("正在完成最后的音频数据")
+                        writeAudioUntil(Long.MAX_VALUE, flushRemaining = true)
                     }
 
                     muxer!!.stop()
@@ -606,29 +644,6 @@ class VideoProcessingCoordinator(context: Context) {
             val cx = x / 2; val cy = y / 2
             uBuf.put(cy * p[1].rowStride + cx * p[1].pixelStride, u.toByte())
             vBuf.put(cy * p[2].rowStride + cx * p[2].pixelStride, v.toByte())
-        }
-    }
-
-    private fun copyAudio(
-        extractor: MediaExtractor, track: Int, muxer: MediaMuxer, basePts: Long, durationUs: Long
-    ) {
-        extractor.seekTo(basePts, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-        val maxSize = runCatching {
-            extractor.getTrackFormat(track).getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
-        }.getOrDefault(1 shl 20).coerceIn(64 * 1024, 8 * 1024 * 1024)
-        val buffer = ByteBuffer.allocateDirect(maxSize)
-        val info = MediaCodec.BufferInfo()
-        while (true) {
-            buffer.clear()
-            val size = extractor.readSampleData(buffer, 0)
-            if (size < 0) break
-            val pts = extractor.sampleTime
-            if (pts < basePts) { extractor.advance(); continue }
-            if (pts - basePts > durationUs) break
-            info.set(0, size, pts - basePts, extractor.sampleFlags)
-            buffer.position(0); buffer.limit(size)
-            muxer.writeSampleData(track, buffer, info)
-            extractor.advance()
         }
     }
 
