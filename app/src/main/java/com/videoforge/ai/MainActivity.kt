@@ -214,5 +214,6 @@ class MainActivity : ComponentActivity() {
         processingCoordinator.setPaused(false)
         processingJob?.cancel()
         processingJob = null
+        processViewModel.cancelCurrentTask()
     }
 }
