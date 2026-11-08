@@ -31,6 +31,11 @@ enum class VideoContainer(val title: String) {
     MKV("MKV")
 }
 
+enum class ProcessingEngine(val title: String, val subtitle: String) {
+    RIFE_AI("RIFE 4.6 AI", "神经网络光流插帧 · Vulkan / CPU"),
+    FFMPEG("FFmpeg", "运动估算插帧 · 转码 / 封装 / 滤镜")
+}
+
 enum class ProcessingStage { Extraction, Interpolation, Encoding, Completed }
 
 data class SelectedVideoInfo(
@@ -55,7 +60,8 @@ data class UserSettings(
     val bitrateMbps: Int = 16,
     val isSafeThermal: Boolean = true,
     val isAutoClean: Boolean = true,
-    val preserveAudio: Boolean = true
+    val preserveAudio: Boolean = true,
+    val processingEngine: ProcessingEngine = ProcessingEngine.RIFE_AI
 )
 
 data class VideoProcessRequest(
@@ -67,7 +73,8 @@ data class VideoProcessRequest(
     val bitrateMbps: Int,
     val isSafeThermal: Boolean,
     val autoCleanFragments: Boolean,
-    val preserveAudio: Boolean
+    val preserveAudio: Boolean,
+    val processingEngine: ProcessingEngine
 )
 
 data class HistoryItem(
@@ -80,7 +87,9 @@ data class HistoryItem(
     val outputResolution: String,
     val codec: VideoCodec,
     val fileSizeBytes: Long,
-    val outputUri: Uri? = null
+    val outputUri: Uri? = null,
+    val processingEngine: ProcessingEngine = ProcessingEngine.RIFE_AI,
+    val container: VideoContainer = VideoContainer.MP4
 )
 
 data class ProgressData(
@@ -246,7 +255,8 @@ class VideoProcessViewModel : ViewModel() {
             bitrateMbps = settings.bitrateMbps,
             isSafeThermal = settings.isSafeThermal,
             autoCleanFragments = settings.isAutoClean,
-            preserveAudio = settings.preserveAudio
+            preserveAudio = settings.preserveAudio,
+            processingEngine = settings.processingEngine
         )
         _uiState.update {
             it.copy(
@@ -291,7 +301,9 @@ class VideoProcessViewModel : ViewModel() {
             outputResolution = settings.targetResolution.title,
             codec = settings.videoCodec,
             fileSizeBytes = fileSizeBytes,
-            outputUri = outputUri
+            outputUri = outputUri,
+            processingEngine = settings.processingEngine,
+            container = settings.container
         )
         _uiState.update {
             it.copy(
@@ -337,7 +349,9 @@ class VideoProcessViewModel : ViewModel() {
                 userSettings = current.userSettings.copy(
                     targetFps = item.outputFps,
                     targetResolution = resolution,
-                    videoCodec = item.codec
+                    videoCodec = item.codec,
+                    processingEngine = item.processingEngine,
+                    container = item.container
                 )
             )
         }
