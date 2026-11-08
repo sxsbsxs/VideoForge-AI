@@ -1,36 +1,60 @@
 # VideoSmoothAI
 
-Open-source Android video-smoothing app UI built with Kotlin, Jetpack Compose, Material 3 and MVVM.
+Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Material 3 and MVVM.
 
-## Included UI
+## Current implementation
 
-- Home screen with Android Photo Picker video selection
-- Video metadata card (name, duration, resolution and source frame rate when metadata is available)
-- 60 FPS / 120 FPS parameter selection
-- Extreme-performance and temporary-fragment cleanup switches
-- Processing screen with a Canvas ring progress indicator
-- Thermal-warning banner, pause/resume and cancel callback hooks
-- System light/dark theme support
-- ViewModel backed by StateFlow
+- Home / Settings / Processing / Result screens
+- Android Photo Picker video selection and source metadata display
+- 60 FPS / 120 FPS output preference
+- Extreme-performance and temporary-fragment cleanup preferences
+- Canvas ring progress and thermal warning UI
+- StateFlow-backed ViewModel
+- Pinned RIFE 4.6 native source built with Android NDK and CMake
+- JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
+- Vulkan device detection with optional CPU fallback
+- First-run RIFE model downloader with file size and Git blob SHA-1 verification
 
-## Architecture
+## Native architecture
 
-- `viewmodel/VideoProcessViewModel.kt`: UI state, navigation state and user actions
-- `ui/VideoSmoothScreens.kt`: Home, Settings, Processing and Result composables
-- `MainActivity.kt`: Activity Result video picker, background metadata extraction and engine callback integration points
+- `app/src/main/cpp/CMakeLists.txt`: downloads pinned upstream RIFE, ncnn, libwebp and glslang source revisions and builds the RIFE core as a static library plus an Android JNI shared library
+- `app/src/main/cpp/rife_jni.cpp`: creates RIFE v4.6 sessions and exposes synchronous RGB24 frame-pair interpolation to Kotlin
+- `nativeengine/Rife46Engine.kt`: Kotlin session API and Vulkan/CPU backend selection
+- `nativeengine/Rife46ModelInstaller.kt`: first-run model installation and integrity verification
 
-## Video engine status
+Native build currently targets **arm64-v8a** and requires Android NDK 27.0.12077973 plus CMake 3.22.1. The Vulkan path uses Android's `libvulkan.so`; devices without a usable Vulkan compute device can select the CPU fallback.
 
-This repository currently implements the UI and state-management layer only. It does **not** yet decode, interpolate, upscale, encode or export video. Connect the native RIFE / Vulkan and FFmpeg processing engine through the callbacks in `MainActivity`:
+## Model installation and use
 
-- `onStartProcess(request)`
-- `onPauseTask(shouldPause)`
-- `onCancelTask()`
+The model is not bundled inside the APK. On first use, call:
 
-The processing screen can be driven by calling the ViewModel's `updateProgress(...)` and `setOverheated(...)` methods from the future processing coordinator.
+```kotlin
+val modelDir = Rife46ModelInstaller.ensureInstalled(context)
+val session = Rife46Engine.createSession(
+    modelDirectory = modelDir,
+    preferVulkan = true,
+    allowCpuFallback = true
+)
+```
 
-The "极速发热模式" switch is only a user preference at this stage; it does not override Android thermal limits. Thermal monitoring and safe throttling must be implemented by the processing coordinator.
+Then pass two tightly packed RGB24 frames to `session.interpolate(frame0, frame1, width, height, timestep = 0.5f)`. Always close the session when the task ends.
+
+The model files are downloaded from the pinned upstream repository revision and checked against their upstream Git blob IDs before installation. The model directory is stored inside app-private storage.
+
+## Important scope boundary
+
+The native RIFE 4.6 inference core and JNI frame-pair interface are now present. **Full video-file processing is not complete yet.** The app still needs a MediaCodec/FFmpeg decode-and-encode coordinator to:
+- decode source video into RGB frames,
+- schedule intermediate timestamps for 60/120 FPS,
+- preserve source audio and synchronize output timestamps,
+- write the final video and recover interrupted segments.
+
+The existing `onStartProcess`, `onPauseTask` and `onCancelTask` callbacks remain integration points for that coordinator. The "极速发热模式" switch does not bypass Android thermal safety; thermal monitoring and throttling still need to be implemented in the coordinator.
 
 ## Build
 
-Push to `main` or run the **Android APK** GitHub Actions workflow. The debug APK is uploaded as an Actions artifact.
+Push to `main` or manually run the **Android APK** workflow. The debug APK is uploaded as a GitHub Actions artifact. The native CMake build fetches and pins upstream source code at configure time, so the first native build requires network access.
+
+## Licenses
+
+Original project code is MIT. Native third-party license texts are copied to APK assets during CMake configuration. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
