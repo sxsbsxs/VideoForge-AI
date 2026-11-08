@@ -123,6 +123,7 @@ import com.videoforge.ai.benchmark.DeviceBenchmarkUiState
 import com.videoforge.ai.viewmodel.HistoryItem
 import com.videoforge.ai.viewmodel.MainTab
 import com.videoforge.ai.viewmodel.ProcessingStage
+import com.videoforge.ai.viewmodel.ProcessingEngine
 import com.videoforge.ai.viewmodel.SelectedVideoInfo
 import com.videoforge.ai.viewmodel.UserSettings
 import com.videoforge.ai.viewmodel.VideoCodec
@@ -657,7 +658,43 @@ private fun ParameterSheet(
     ) {
         Text("输出参数", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("根据设备能力选择，4K 与 120 FPS 会显著增加负载。", color = Muted, fontSize = 12.sp)
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("处理引擎", color = Color.White, fontWeight = FontWeight.SemiBold)
+        ProcessingEngine.entries.forEach { engine ->
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+                    .clickable {
+                        onSettingsChanged(settings.copy(
+                            processingEngine = engine,
+                            container = if (engine == ProcessingEngine.RIFE_AI) VideoContainer.MP4 else settings.container
+                        ))
+                    }.padding(vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = settings.processingEngine == engine,
+                    onClick = {
+                        onSettingsChanged(settings.copy(
+                            processingEngine = engine,
+                            container = if (engine == ProcessingEngine.RIFE_AI) VideoContainer.MP4 else settings.container
+                        ))
+                    }
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(engine.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(engine.subtitle, color = Muted, fontSize = 10.sp)
+                }
+                if (settings.processingEngine == engine) Text("已选", color = Aurora, fontSize = 10.sp)
+            }
+        }
+        Text(
+            if (settings.processingEngine == ProcessingEngine.RIFE_AI)
+                "RIFE 使用神经网络模型，首次运行需要联网下载模型。"
+            else
+                "FFmpeg 使用 minterpolate 运动估算插帧，不是神经网络；启动时会检测编码器。",
+            color = Muted, fontSize = 10.sp
+        )
+        Spacer(Modifier.height(14.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("目标帧率", color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -731,7 +768,8 @@ private fun ParameterSheet(
         Text("编码器", color = Color.White, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         VideoCodec.entries.forEach { codec ->
-            val supported = remember(codec) { isEncoderAvailable(codec.mimeType) }
+            val supported = if (settings.processingEngine == ProcessingEngine.FFMPEG) true
+                else remember(codec) { isEncoderAvailable(codec.mimeType) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -750,7 +788,11 @@ private fun ParameterSheet(
                 Column(Modifier.weight(1f)) {
                     Text(codec.title, color = if (supported) Color.White else Muted)
                     Text(
-                        if (supported) "设备检测到可用编码器" else "当前设备未检测到编码器",
+                        when {
+                            !supported -> "当前设备未检测到编码器"
+                            settings.processingEngine == ProcessingEngine.FFMPEG -> "FFmpeg 启动时检测编码器"
+                            else -> "设备检测到可用 MediaCodec 编码器"
+                        },
                         color = Muted,
                         fontSize = 10.sp
                     )
@@ -763,12 +805,13 @@ private fun ParameterSheet(
         Text("封装格式", color = Color.White, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             VideoContainer.entries.forEach { container ->
-                val supported = container == VideoContainer.MP4
+                val supported = settings.processingEngine == ProcessingEngine.FFMPEG ||
+                    container == VideoContainer.MP4
                 FilterChip(
                     selected = settings.container == container,
                     enabled = supported,
                     onClick = { onSettingsChanged(settings.copy(container = container)) },
-                    label = { Text(if (supported) container.title else "MKV（待支持）") }
+                    label = { Text(if (supported) container.title else "MKV（仅 FFmpeg 可用）") }
                 )
             }
         }
@@ -971,10 +1014,45 @@ private fun SettingsWorkspace(
 
         Spacer(Modifier.height(14.dp))
         GlassPanel {
+            Text("处理引擎", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            ProcessingEngine.entries.forEach { engine ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onSettingsChanged(settings.copy(
+                            processingEngine = engine,
+                            container = if (engine == ProcessingEngine.RIFE_AI) VideoContainer.MP4 else settings.container
+                        ))
+                    }.padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = settings.processingEngine == engine,
+                        onClick = {
+                            onSettingsChanged(settings.copy(
+                                processingEngine = engine,
+                                container = if (engine == ProcessingEngine.RIFE_AI) VideoContainer.MP4 else settings.container
+                            ))
+                        }
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(engine.title, color = Color.White)
+                        Text(engine.subtitle, color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+            Text(
+                if (settings.processingEngine == ProcessingEngine.RIFE_AI)
+                    "RIFE 4.6 神经网络插帧。"
+                else
+                    "FFmpeg 运动估算插帧与转码，温控过热时会终止任务。",
+                color = Muted, fontSize = 10.sp
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.10f))
             Text("默认输出编码", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             VideoCodec.entries.forEach { codec ->
-                val supported = codecAvailability[codec] == true
+                val supported = settings.processingEngine == ProcessingEngine.FFMPEG ||
+                    codecAvailability[codec] == true
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -990,15 +1068,24 @@ private fun SettingsWorkspace(
                         enabled = supported
                     )
                     Text(codec.title, color = if (supported) Color.White else Muted, modifier = Modifier.weight(1f))
-                    Text(if (supported) "可用" else "不支持", color = if (supported) Good else Muted, fontSize = 10.sp)
+                    Text(
+                        if (!supported) "不支持"
+                        else if (settings.processingEngine == ProcessingEngine.FFMPEG) "启动时检测"
+                        else "可用",
+                        color = if (supported) Good else Muted,
+                        fontSize = 10.sp
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
             Text("封装格式", color = Muted, fontSize = 11.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 VideoContainer.entries.forEach { container ->
+                    val supported = settings.processingEngine == ProcessingEngine.FFMPEG ||
+                        container == VideoContainer.MP4
                     FilterChip(
                         selected = settings.container == container,
+                        enabled = supported,
                         onClick = { onSettingsChanged(settings.copy(container = container)) },
                         label = { Text(container.title) }
                     )
@@ -1183,10 +1270,20 @@ private fun ProcessingWorkspace(
         }
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onPause, modifier = Modifier.weight(1f)) {
+            OutlinedButton(
+                onClick = onPause,
+                enabled = state.userSettings.processingEngine == ProcessingEngine.RIFE_AI,
+                modifier = Modifier.weight(1f)
+            ) {
                 Icon(if (state.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
-                Text(if (state.isPaused) "继续" else "暂停")
+                Text(
+                    when {
+                        state.userSettings.processingEngine == ProcessingEngine.FFMPEG -> "FFmpeg 不支持暂停"
+                        state.isPaused -> "继续"
+                        else -> "暂停"
+                    }
+                )
             }
         }
         Text("滑动到底部取消任务", color = Muted, fontSize = 10.sp)
@@ -1234,7 +1331,7 @@ private fun ResultWorkspace(
                 ResultMetric(settings.targetResolution.title, "RESOLUTION")
                 ResultMetric(formatBytes(state.resultFileSizeBytes), "OUTPUT SIZE")
             }
-            Text("${settings.videoCodec.title}  ·  ${settings.container.title}", color = Aurora, fontSize = 11.sp)
+            Text("${settings.processingEngine.title}  ·  ${settings.videoCodec.title}  ·  ${settings.container.title}", color = Aurora, fontSize = 11.sp)
             if (state.cleanedTempBytes > 0L) {
                 Text("已清理 ${formatBytes(state.cleanedTempBytes)} 临时中转文件", color = Good, fontSize = 12.sp)
             }
