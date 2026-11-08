@@ -6,7 +6,9 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 
 - Home / Settings / Processing / Result screens
 - Android Photo Picker video selection and source metadata display
-- 60 FPS / 120 FPS output preference
+- 30 / 60 / 90 / 120 FPS output preference
+- Output resolution preference: source / 720p / 1080p / 1440p / 4K
+- On-device RIFE 4.6 benchmark screen with device, RAM, Vulkan backend and thermal status
 - Extreme-performance and temporary-fragment cleanup preferences
 - Canvas ring progress and thermal warning UI
 - StateFlow-backed ViewModel
@@ -14,6 +16,12 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
 - Vulkan device detection with optional CPU fallback
 - First-run RIFE model downloader with file size and Git blob SHA-1 verification
+
+## Device performance test
+
+Open **设备性能测试** from the home screen. The first run downloads the RIFE 4.6 model into app-private storage (about 10.6 MB of model weights plus the parameter file), then benchmarks synthetic RGB frames at 480p, 720p and 1080p. Each size performs one warm-up inference and three timed inferences; the median is reported as single-inference latency and approximate inference calls per second.
+
+The test uses real native RIFE inference, but it does **not** include video decoding, encoding, audio muxing, storage I/O, or a long-duration thermal soak. It is therefore a useful device-side comparison, not a promise that a video can be exported at the displayed inference rate. The test skips a size when available RAM is below its safety threshold and stops when Android reports severe thermal status. 1440p and 4K are intentionally not stress-tested in the first pass.
 
 ## Native architecture
 
@@ -49,7 +57,7 @@ The native RIFE 4.6 inference core and JNI frame-pair interface are now present.
 - preserve source audio and synchronize output timestamps,
 - write the final video and recover interrupted segments.
 
-The existing `onStartProcess`, `onPauseTask` and `onCancelTask` callbacks remain integration points for that coordinator. The "极速发热模式" switch does not bypass Android thermal safety; thermal monitoring and throttling still need to be implemented in the coordinator.
+The new FPS and resolution controls are currently stored in `VideoProcessRequest`; they are not yet applied to an exported file. The existing `onStartProcess`, `onPauseTask` and `onCancelTask` callbacks remain integration points for the decode/encode coordinator. The "极速发热模式" switch does not bypass Android thermal safety; thermal monitoring and throttling still need to be implemented in the coordinator.
 
 ## Build
 
