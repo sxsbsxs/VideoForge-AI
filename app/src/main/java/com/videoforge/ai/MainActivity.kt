@@ -12,28 +12,37 @@ import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Observer
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.videoforge.ai.benchmark.DeviceBenchmarkViewModel
-import com.videoforge.ai.processing.VideoProcessingCoordinator
-import com.videoforge.ai.processing.FfmpegProcessingCoordinator
+import com.videoforge.ai.processing.ProcessingRuntime
+import com.videoforge.ai.processing.VideoProcessingWorker
 import com.videoforge.ai.ui.VideoSmoothAIApp
 import com.videoforge.ai.ui.VideoSmoothAITheme
-import com.videoforge.ai.viewmodel.SelectedVideoInfo
 import com.videoforge.ai.viewmodel.ProcessingEngine
+import com.videoforge.ai.viewmodel.ProcessingStage
+import com.videoforge.ai.viewmodel.SelectedVideoInfo
 import com.videoforge.ai.viewmodel.VideoProcessRequest
 import com.videoforge.ai.viewmodel.VideoProcessViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private val processViewModel: VideoProcessViewModel by viewModels()
     private val benchmarkViewModel: DeviceBenchmarkViewModel by viewModels()
-    private val processingCoordinator by lazy { VideoProcessingCoordinator(applicationContext) }
-    private val ffmpegCoordinator by lazy { FfmpegProcessingCoordinator(applicationContext) }
-    private var processingJob: Job? = null
+    private val workManager by lazy { WorkManager.getInstance(applicationContext) }
+    private val taskPreferences by lazy {
+        getSharedPreferences("smoothai_active_task", MODE_PRIVATE)
+    }
+    private var activeWorkId: UUID? = null
+    private var observedWork: LiveData<WorkInfo>? = null
+    private var workObserver: Observer<WorkInfo>? = null
     private var batteryReceiverRegistered = false
 
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -49,6 +58,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.rgb(15, 23, 42)
         window.navigationBarColor = android.graphics.Color.rgb(15, 23, 42)
+
+        taskPreferences.getString(VideoProcessingWorker.PREF_WORK_ID, null)
+            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            ?.let { id ->
+                activeWorkId = id
+                processViewModel.restoreActiveProcessing()
+                observeProcessingWork(id)
+            }
 
         setContent {
             VideoSmoothAITheme {
@@ -85,19 +102,38 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        workObserver?.let { observer -> observedWork?.removeObserver(observer) }
+        workObserver = null
+        observedWork = null
+        super.onDestroy()
+    }
+
     private fun loadVideoMetadata(uri: Uri) {
-        lifecycleScope.launch {
-            val videoInfo = withContext(Dispatchers.IO) {
-                readVideoInfo(uri)
-            }
-            if (videoInfo != null) {
+        lifecycleScopeLaunch {
+            val info = readVideoInfo(uri)
+            if (info != null) {
                 runCatching {
                     contentResolver.takePersistableUriPermission(
                         uri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
                 }
-                processViewModel.onVideoSelected(videoInfo)
+                processViewModel.onVideoSelected(info)
+            } else {
+                processViewModel.setStatusMessage("无法读取该视频的元数据，请尝试选择本地视频文件。")
+            }
+        }
+    }
+
+    private fun loadVideoMetadata(uri: Uri) {
+        lifecycleScope.launch {
+            val info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { readVideoInfo(uri) }
+            if (info != null) {
+                runCatching {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                processViewModel.onVideoSelected(info)
             } else {
                 processViewModel.setStatusMessage("无法读取该视频的元数据，请尝试选择本地视频文件。")
             }
@@ -113,9 +149,9 @@ class MainActivity : ComponentActivity() {
                 null,
                 null
             )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
-                } else null
+                if (cursor.moveToFirst()) cursor.getString(
+                    cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
+                ) else null
             }
         }.getOrNull() ?: uri.lastPathSegment ?: "未命名视频"
 
@@ -159,45 +195,97 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onStartProcess(request: VideoProcessRequest) {
-        processingJob?.cancel()
-        processingCoordinator.setPaused(false)
-        processViewModel.setStatusMessage("准备开始处理…")
-        processingJob = lifecycleScope.launch {
-            try {
-                val progress: (Float, String, com.videoforge.ai.viewmodel.ProcessingStage) -> Unit =
-                    { percent, remaining, stage ->
-                        processViewModel.updateProgress(percent, remaining, stage)
-                    }
-                val result = when (request.processingEngine) {
-                    ProcessingEngine.RIFE_AI -> processingCoordinator.process(
-                        request = request,
-                        onProgress = progress,
-                        onStatus = processViewModel::setStatusMessage
-                    )
-                    ProcessingEngine.FFMPEG -> ffmpegCoordinator.process(
-                        request = request,
-                        onProgress = progress,
-                        onStatus = processViewModel::setStatusMessage
+        ProcessingRuntime.paused = false
+        processViewModel.setPaused(false)
+        processViewModel.setStatusMessage("正在提交后台视频处理任务…")
+
+        val constraints = Constraints.Builder().apply {
+            if (request.source.isNetworkSource) {
+                setRequiredNetworkType(NetworkType.CONNECTED)
+            }
+        }.build()
+        val work = OneTimeWorkRequestBuilder<VideoProcessingWorker>()
+            .setInputData(VideoProcessingWorker.encodeRequest(request))
+            .setConstraints(constraints)
+            .addTag(VideoProcessingWorker.TAG)
+            .build()
+
+        activeWorkId = work.id
+        taskPreferences.edit()
+            .putString(VideoProcessingWorker.PREF_WORK_ID, work.id.toString())
+            .apply()
+        workManager.enqueueUniqueWork(
+            VideoProcessingWorker.TAG,
+            ExistingWorkPolicy.REPLACE,
+            work
+        )
+        observeProcessingWork(work.id)
+    }
+
+    private fun observeProcessingWork(id: UUID) {
+        workObserver?.let { observer -> observedWork?.removeObserver(observer) }
+        val liveData = workManager.getWorkInfoByIdLiveData(id)
+        val observer = Observer<WorkInfo> { info ->
+            if (info == null) return@Observer
+
+            if (info.state == WorkInfo.State.RUNNING) {
+                val data = info.progress
+                val hasProgress = data.keyValueMap.containsKey(VideoProcessingWorker.KEY_PROGRESS)
+                if (hasProgress) {
+                    val stageName = data.getString(VideoProcessingWorker.KEY_STAGE)
+                    val stage = runCatching {
+                        enumValueOf<ProcessingStage>(stageName ?: ProcessingStage.Interpolation.name)
+                    }.getOrDefault(ProcessingStage.Interpolation)
+                    processViewModel.updateProgress(
+                        data.getFloat(VideoProcessingWorker.KEY_PROGRESS, 0f),
+                        data.getString(VideoProcessingWorker.KEY_ETA) ?: "后台正在处理",
+                        stage
                     )
                 }
-                processViewModel.finishProcessing(
-                    outputUri = result.outputUri,
-                    fileSizeBytes = result.fileSizeBytes,
-                    cleanedTempBytes = result.cleanedTempBytes
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                val message = failure.message?.takeIf { it.isNotBlank() }
-                    ?: failure.javaClass.simpleName
-                processViewModel.processingFailed("处理失败：$message")
-            } finally {
-                processingCoordinator.setPaused(false)
-                if (processingJob === kotlinx.coroutines.currentCoroutineContext()[Job]) {
-                    processingJob = null
+                if (data.keyValueMap.containsKey(VideoProcessingWorker.KEY_STATUS)) {
+                    processViewModel.setStatusMessage(data.getString(VideoProcessingWorker.KEY_STATUS))
                 }
             }
+
+            when (info.state) {
+                WorkInfo.State.SUCCEEDED -> {
+                    val outputUri = info.outputData.getString(VideoProcessingWorker.KEY_OUTPUT_URI)
+                        ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                    if (outputUri != null) {
+                        processViewModel.finishProcessing(
+                            outputUri = outputUri,
+                            fileSizeBytes = info.outputData.getLong(VideoProcessingWorker.KEY_OUTPUT_SIZE, 0L),
+                            cleanedTempBytes = info.outputData.getLong(VideoProcessingWorker.KEY_CLEANED_BYTES, 0L)
+                        )
+                    } else {
+                        processViewModel.processingFailed("后台任务已结束，但没有返回有效的视频文件。")
+                    }
+                    clearObservedWork()
+                }
+                WorkInfo.State.FAILED -> {
+                    val error = info.outputData.getString(VideoProcessingWorker.KEY_ERROR)
+                        ?: "后台视频处理失败。"
+                    processViewModel.processingFailed("处理失败：$error")
+                    clearObservedWork()
+                }
+                WorkInfo.State.CANCELLED -> {
+                    processViewModel.cancelCurrentTask()
+                    clearObservedWork()
+                }
+                WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED, WorkInfo.State.RUNNING -> Unit
+            }
         }
+        observedWork = liveData
+        workObserver = observer
+        liveData.observe(this, observer)
+    }
+
+    private fun clearObservedWork() {
+        taskPreferences.edit().remove(VideoProcessingWorker.PREF_WORK_ID).apply()
+        activeWorkId = null
+        workObserver?.let { observer -> observedWork?.removeObserver(observer) }
+        workObserver = null
+        observedWork = null
     }
 
     private fun onPauseTask(shouldPause: Boolean) {
@@ -205,15 +293,15 @@ class MainActivity : ComponentActivity() {
             processViewModel.setStatusMessage("FFmpeg 模式暂不支持安全暂停；可以取消任务后重新处理。")
             return
         }
-        processingCoordinator.setPaused(shouldPause)
+        ProcessingRuntime.paused = shouldPause
         processViewModel.setPaused(shouldPause)
         processViewModel.setStatusMessage(if (shouldPause) "已暂停，当前帧完成。" else "继续处理…")
     }
 
     private fun onCancelTask() {
-        processingCoordinator.setPaused(false)
-        processingJob?.cancel()
-        processingJob = null
+        ProcessingRuntime.paused = false
+        activeWorkId?.let { workManager.cancelWorkById(it) }
+        clearObservedWork()
         processViewModel.cancelCurrentTask()
     }
 }
