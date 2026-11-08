@@ -243,7 +243,7 @@ class VideoProcessingWorker(
                 .putString(KEY_ENGINE, request.processingEngine.name)
                 .build()
 
-        private fun decodeRequest(data: Data): VideoProcessRequest? = runCatching {
+        fun decodeRequest(data: Data): VideoProcessRequest? = runCatching {
             val sourceUri = Uri.parse(data.getString(KEY_URI) ?: error("missing source uri"))
             val source = SelectedVideoInfo(
                 uri = sourceUri,
