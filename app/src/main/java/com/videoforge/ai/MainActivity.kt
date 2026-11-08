@@ -314,10 +314,14 @@ class MainActivity : ComponentActivity() {
                 return@Observer
             }
 
-            if (!info.state.isFinished) {
-                processViewModel.attachActiveRequest(
-                    VideoProcessingWorker.decodeRequest(info.inputData)
-                )
+            // Rehydrate the original request even if the activity returns after
+            // the worker has already finished; history must describe the actual job,
+            // not a different video/settings the user may have selected meanwhile.
+            val restoredRequest = VideoProcessingWorker.decodeRequest(info.inputData)
+            if (restoredRequest != null) {
+                processViewModel.attachActiveRequest(restoredRequest)
+            } else if (!info.state.isFinished) {
+                processViewModel.attachActiveRequest(null)
             }
 
             if (info.state == WorkInfo.State.RUNNING) {
