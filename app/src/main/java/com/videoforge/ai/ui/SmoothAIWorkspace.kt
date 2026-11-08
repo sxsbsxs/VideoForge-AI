@@ -1230,7 +1230,7 @@ private fun ResultWorkspace(
             }
             Text("${settings.videoCodec.title}  ·  ${settings.container.title}", color = Aurora, fontSize = 11.sp)
             if (state.cleanedTempBytes > 0L) {
-                Text("已清理 ${formatBytes(state.cleanedTempBytes)} 临时碎片", color = Good, fontSize = 12.sp)
+                Text("已清理 ${formatBytes(state.cleanedTempBytes)} 临时中转文件", color = Good, fontSize = 12.sp)
             }
         }
 
