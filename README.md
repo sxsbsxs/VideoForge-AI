@@ -11,7 +11,7 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - SmoothAI dark aurora workspace: Home / History / Settings tabs with a Material 3 NavigationBar
 - System Photo Picker video import and in-app Media3 ExoPlayer preview
 - Direct network MP4 / HLS preview for supported URLs
-- Output settings for H.264 / H.265 / AV1 (only enabled when an encoder is detected), MP4 / MKV, bitrate and audio retention
+- Output settings for H.264 / H.265 / AV1 (subject to device codec capability), MP4, bitrate and optional source-audio retention; MKV is visibly disabled until a Matroska muxer is added
 - Synchronized original-versus-processed dual-player comparison UI with shared seek, play/pause and playback speed
 - History list with generated video-frame thumbnails
 - On-device RIFE 4.6 benchmark screen with device, RAM, Vulkan backend and thermal status
@@ -20,6 +20,9 @@ Open-source Android video-smoothing app built with Kotlin, Jetpack Compose, Mate
 - StateFlow-backed ViewModel
 - Pinned RIFE 4.6 native source built with Android NDK and CMake
 - JNI bridge for loading RIFE 4.6 and interpolating a pair of RGB24 frames
+- End-to-end MediaExtractor / MediaCodec pipeline: YUV decode, RGB24 conversion, timestamp-driven RIFE interpolation, YUV420 encode and MP4 muxing
+- Source audio packet reuse with timestamp interleaving, aspect-ratio-preserving output sizing, MediaStore export to Movies/SmoothAI
+- Cooperative pause/cancel handling and Android severe-thermal-status wait when thermal protection is enabled
 - Vulkan device detection with optional CPU fallback
 - First-run RIFE model downloader with file size and Git blob SHA-1 verification
 
@@ -33,7 +36,7 @@ The test uses real native RIFE inference, but it does **not** include video deco
 
 The home screen uses Android's system Photo Picker for local videos and Media3 ExoPlayer for in-app playback. A network URL field accepts direct HTTP(S) video URLs; progressive MP4 and HLS are supported by the included ExoPlayer and HLS modules, subject to the server allowing access and providing playable media. The settings page detects available Android encoders via `MediaCodecList` before enabling H.264, H.265 or AV1 choices.
 
-The result screen includes a synchronized dual-player comparison component. Both players share playback state, seek position and playback speed. It becomes active when a processing coordinator supplies the output `Uri` through `VideoProcessViewModel.finishProcessing(...)`.
+The result screen now receives the exported output `Uri` from the processing coordinator and opens the synchronized original-versus-output comparison player. Both players share play/pause, seek position and playback speed.
 
 History currently lives in the ViewModel state for the active app process; persistent database storage is a separate follow-up. Battery temperature is read from Android's battery status broadcast and shown as a device-temperature indicator. This is battery temperature, not a direct measurement of the SoC/GPU junction temperature.
 
@@ -63,15 +66,30 @@ Then pass two tightly packed RGB24 frames to `session.interpolate(frame0, frame1
 
 The model files are downloaded from the pinned upstream repository revision and checked against their upstream Git blob IDs before installation. The model directory is stored inside app-private storage.
 
-## Important scope boundary
+## Video processing pipeline and limitations
 
-The native RIFE 4.6 inference core and JNI frame-pair interface are now present. **Full video-file processing is not complete yet.** The app still needs a MediaCodec/FFmpeg decode-and-encode coordinator to:
-- decode source video into RGB frames,
-- schedule intermediate timestamps for 60/120 FPS,
-- preserve source audio and synchronize output timestamps,
-- write the final video and recover interrupted segments.
+The app now wires the processing button to `VideoProcessingCoordinator`:
 
-The FPS, resolution, codec, container, bitrate and audio-retention controls are currently stored in `VideoProcessRequest`; they are not yet applied to an exported file. The synchronized comparison player is implemented, but it needs an actual output `Uri` from the processing coordinator. The existing `onStartProcess`, `onPauseTask` and `onCancelTask` callbacks remain integration points for the decode/encode coordinator. The UI explicitly reports that the export pipeline is not connected rather than pretending to produce a finished video. The "极速发热模式" switch does not bypass Android thermal safety; thermal monitoring and throttling still need to be implemented in the coordinator.
+1. `MediaExtractor` reads the source video track and `MediaCodec` decodes frames to flexible YUV420 images.
+2. Frames are converted to RGB24 and resized without changing aspect ratio.
+3. RIFE 4.6 generates frames at the requested constant-frame-rate timestamps.
+4. RGB24 frames are converted to a YUV420 layout accepted by a device encoder and encoded using the selected H.264, H.265 or AV1 MIME type when the device supports the requested dimensions and frame rate.
+5. The original compressed audio track is copied when enabled, interleaved by presentation timestamp with encoded video samples, then muxed to MP4.
+6. The finished file is published to the system media library under `Movies/SmoothAI` on Android 10 and later. Older supported Android versions use the app-specific Movies directory.
+
+The coordinator prefers a hardware encoder when it advertises the requested size/rate and a supported YUV420 input format. It does not guarantee that every device can encode AV1, 4K or 120 FPS. Large resolutions and high frame rates can exhaust GPU memory, system memory or thermal headroom. The device's codec capabilities are checked before encoding, but a successful CI build does not prove that a particular handset can finish a long video.
+
+Current constraints:
+- MP4 is the only export container. MKV is disabled in the parameter sheet until a Matroska muxer is implemented.
+- Processing is limited to media that Android's `MediaExtractor` and installed `MediaCodec` components can decode. Preview support in ExoPlayer does not imply every preview URL is processable.
+- The current YUV-to-RGB path is an SDR conversion path; HDR / wide-gamut metadata and HDR transfer characteristics are not preserved end-to-end.
+- Subtitles, chapter metadata, DRM-protected media and interrupted-task resume are not implemented.
+- Source audio is copied without transcoding. If the source audio format cannot be added to the MP4 muxer, processing reports an error rather than silently dropping audio.
+- The history list is in-memory only. A persistent database and a full recovery/segmented-processing system remain future work.
+
+The RIFE model is downloaded on first use into app-private storage and checksum-verified. Severe Android thermal status causes the coordinator to wait when thermal protection is enabled; this does not bypass Android's own thermal controls.
+
+A successful GitHub Actions APK build validates compilation and packaging only. Runtime throughput, output quality, audio compatibility and thermal stability still require testing on the target Android device.
 
 ## Build
 
