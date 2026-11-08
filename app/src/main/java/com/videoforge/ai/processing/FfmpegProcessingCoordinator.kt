@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegSession
+import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.videoforge.ai.viewmodel.ProcessingStage
 import com.videoforge.ai.viewmodel.VideoCodec
@@ -111,7 +112,7 @@ class FfmpegProcessingCoordinator(context: Context) {
     }
 
     private fun probeDurationMs(path: String): Long {
-        val session = FFmpegKit.executeWithArguments(
+        val session = FFprobeKit.executeWithArguments(
             arrayOf("-v", "error", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", path)
         )
