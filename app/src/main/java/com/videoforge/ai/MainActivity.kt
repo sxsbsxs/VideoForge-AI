@@ -65,13 +65,29 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.rgb(15, 23, 42)
         window.navigationBarColor = android.graphics.Color.rgb(15, 23, 42)
 
-        taskPreferences.getString(VideoProcessingWorker.PREF_WORK_ID, null)
+        val savedWorkId = taskPreferences
+            .getString(VideoProcessingWorker.PREF_WORK_ID, null)
             ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-            ?.let { id ->
-                activeWorkId = id
-                processViewModel.restoreActiveProcessing()
-                observeProcessingWork(id)
+
+        if (savedWorkId != null) {
+            activeWorkId = savedWorkId
+            processViewModel.restoreActiveProcessing()
+            observeProcessingWork(savedWorkId)
+        } else {
+            // Recover even when the local UUID preference was lost: WorkManager's unique
+            // work record is the authoritative source of unfinished background tasks.
+            lifecycleScope.launch {
+                val existing = withContext(Dispatchers.IO) {
+                    workManager.getWorkInfosForUniqueWork(VideoProcessingWorker.TAG)
+                        .get()
+                        .firstOrNull { !it.state.isFinished }
+                }
+                if (existing != null) {
+                    processViewModel.restoreActiveProcessing()
+                    attachToExistingWork(existing)
+                }
             }
+        }
 
         setContent {
             VideoSmoothAITheme {
