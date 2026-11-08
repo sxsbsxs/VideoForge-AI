@@ -65,6 +65,20 @@ if(RIFE_CMAKE_PATCHED STREQUAL RIFE_CMAKE_TEXT)
 endif()
 file(WRITE "${RIFE_CMAKE}" "${RIFE_CMAKE_PATCHED}")
 
+# Disable upstream IPO probing on Android. Its cross-ABI test may request the
+# unsupported gold linker; LTO is not required for correctness of this JNI build.
+file(READ "${RIFE_CMAKE}" RIFE_CMAKE_AFTER_VULKAN)
+set(IPO_BEGIN "# enable global link time optimization")
+set(IPO_END "if(USE_SYSTEM_NCNN)")
+string(FIND "${RIFE_CMAKE_AFTER_VULKAN}" "${IPO_BEGIN}" IPO_BEGIN_POS)
+string(FIND "${RIFE_CMAKE_AFTER_VULKAN}" "${IPO_END}" IPO_END_POS)
+if(IPO_BEGIN_POS LESS 0 OR IPO_END_POS LESS IPO_BEGIN_POS)
+    message(FATAL_ERROR "Unable to locate upstream RIFE IPO configuration block.")
+endif()
+string(SUBSTRING "${RIFE_CMAKE_AFTER_VULKAN}" 0 ${IPO_BEGIN_POS} RIFE_PREFIX)
+string(SUBSTRING "${RIFE_CMAKE_AFTER_VULKAN}" ${IPO_END_POS} -1 RIFE_SUFFIX)
+file(WRITE "${RIFE_CMAKE}" "${RIFE_PREFIX}# IPO disabled for Android NDK portability.\nset(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)\n\n${RIFE_SUFFIX}")
+
 # Android NDK provides libvulkan.so but CMake's desktop FindVulkan module does
 # not consistently publish the imported target on every NDK/CMake combination.
 file(READ "${RIFE_NCNN_CMAKE}" NCNN_CMAKE_TEXT)

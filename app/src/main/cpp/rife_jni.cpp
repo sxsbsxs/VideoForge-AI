@@ -104,31 +104,24 @@ Java_com_videoforge_ai_nativeengine_Rife46Engine_nativeCreateModel(
         return 0;
     }
 
-    try {
-        std::shared_ptr<RifeSession> session = std::make_shared<RifeSession>();
-        session->use_vulkan = gpu_id >= 0;
-        const int thread_count = std::max(1, std::min(4, static_cast<int>(num_threads)));
-        // RIFE v4.6 is selected by the final rife_v4=true constructor argument.
-        session->model.reset(new RIFE(gpu_id, false, false, false, thread_count, false, true));
-        const int load_result = session->model->load(model_dir);
-        if (load_result != 0) {
-            session->model.reset();
-            throw_java(env, "java/lang/IllegalStateException",
-                       "Failed to load RIFE 4.6 flownet.param/flownet.bin.");
-            return 0;
-        }
-
-        std::lock_guard<std::mutex> lock(g_sessions_mutex);
-        const jlong handle = g_next_handle++;
-        g_sessions.emplace(handle, session);
-        __android_log_print(ANDROID_LOG_INFO, kLogTag, "RIFE 4.6 session created (%s).",
-                            session->use_vulkan ? "Vulkan" : "CPU");
-        return handle;
-    } catch (const std::exception& error) {
-        throw_java(env, "java/lang/IllegalStateException", error.what());
-    } catch (...) {
-        throw_java(env, "java/lang/IllegalStateException", "Unknown native RIFE initialization error.");
+    std::shared_ptr<RifeSession> session = std::make_shared<RifeSession>();
+    session->use_vulkan = gpu_id >= 0;
+    const int thread_count = std::max(1, std::min(4, static_cast<int>(num_threads)));
+    // RIFE v4.6 is selected by the final rife_v4=true constructor argument.
+    session->model.reset(new RIFE(gpu_id, false, false, false, thread_count, false, true));
+    const int load_result = session->model->load(model_dir);
+    if (load_result != 0) {
+        session->model.reset();
+        throw_java(env, "java/lang/IllegalStateException",
+                   "Failed to load RIFE 4.6 flownet.param/flownet.bin.");
+        return 0;
     }
+
+    std::lock_guard<std::mutex> lock(g_sessions_mutex);
+    const jlong handle = g_next_handle++;
+    g_sessions.emplace(handle, session);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "RIFE 4.6 session created (%s).",
+                        session->use_vulkan ? "Vulkan" : "CPU");
     return 0;
 }
 
