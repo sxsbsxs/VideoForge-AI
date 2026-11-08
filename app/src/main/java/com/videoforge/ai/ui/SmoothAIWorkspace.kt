@@ -234,6 +234,10 @@ fun SmoothAIWorkspace(
                         video = state.selectedVideo,
                         settings = state.userSettings,
                         statusMessage = state.statusMessage,
+                        isProcessingActive = state.isProcessingActive,
+                        progressPercent = state.progressData.progressPercent,
+                        remainingTime = state.progressData.estimatedRemainingTime,
+                        onShowProcessing = processViewModel::showProcessing,
                         onPickVideo = {
                             picker.launch(
                                 PickVisualMediaRequest(
@@ -391,6 +395,10 @@ private fun HomeWorkspace(
     video: SelectedVideoInfo?,
     settings: UserSettings,
     statusMessage: String?,
+    isProcessingActive: Boolean,
+    progressPercent: Float,
+    remainingTime: String,
+    onShowProcessing: () -> Unit,
     onPickVideo: () -> Unit,
     onNetworkPreview: (String) -> Unit,
     onOpenParameters: () -> Unit,
@@ -418,6 +426,25 @@ private fun HomeWorkspace(
                     .padding(horizontal = 12.dp, vertical = 7.dp)
             ) {
                 Text("RIFE 4.6", color = Aurora, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        if (isProcessingActive) {
+            Spacer(Modifier.height(16.dp))
+            GlassPanel {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("正在后台处理", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${progressPercent.toInt().coerceIn(0, 100)}% · $remainingTime",
+                            color = Aurora,
+                            fontSize = 11.sp
+                        )
+                    }
+                    OutlinedButton(onClick = onShowProcessing) {
+                        Text("查看进度")
+                    }
+                }
             }
         }
 
