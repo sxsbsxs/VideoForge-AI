@@ -2,8 +2,10 @@ package com.videoforge.ai.processing
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
@@ -12,6 +14,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import androidx.work.WorkManager
 import com.videoforge.ai.R
 import com.videoforge.ai.viewmodel.ProcessingEngine
 import com.videoforge.ai.viewmodel.ProcessingStage
@@ -47,6 +50,7 @@ class VideoProcessingWorker(
             val latestEta = AtomicReference("正在准备")
             val latestStage = AtomicReference(ProcessingStage.Extraction.name)
             val latestStatus = AtomicReference<String?>(null)
+            val lastNotificationPercent = java.util.concurrent.atomic.AtomicInteger(-1)
             fun writeProgress() {
                 runBlocking(Dispatchers.IO) {
                     val data = Data.Builder()
@@ -56,6 +60,21 @@ class VideoProcessingWorker(
                         .putString(KEY_STATUS, latestStatus.get())
                         .build()
                     setProgress(data)
+                }
+                val percent = latestProgress.get().toInt().coerceIn(0, 100)
+                if (percent != lastNotificationPercent.getAndSet(percent)) {
+                    runCatching {
+                        val manager = applicationContext.getSystemService(
+                            Context.NOTIFICATION_SERVICE
+                        ) as NotificationManager
+                        manager.notify(
+                            NOTIFICATION_ID,
+                            createProgressNotification(
+                                latestStatus.get() ?: latestEta.get(),
+                                percent
+                            )
+                        )
+                    }
                 }
             }
             val progressCallback: (Float, String, ProcessingStage) -> Unit =
@@ -95,6 +114,32 @@ class VideoProcessingWorker(
         }
     }
 
+    private fun createProgressNotification(content: String, percent: Int?): Notification {
+        val cancelIntent = Intent(applicationContext, VideoProcessingCancelReceiver::class.java).apply {
+            action = VideoProcessingCancelReceiver.ACTION_CANCEL
+        }
+        val cancelPendingIntent = PendingIntent.getBroadcast(
+            applicationContext,
+            7407,
+            cancelIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle("SmoothAI 正在处理视频")
+            .setContentText(content.take(120))
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, percent?.coerceIn(0, 100) ?: 0, percent == null)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "取消处理",
+                cancelPendingIntent
+            )
+            .build()
+    }
+
     private fun createForegroundInfo(): ForegroundInfo {
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -110,15 +155,7 @@ class VideoProcessingWorker(
             )
         }
 
-        val notification: Notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("SmoothAI 正在处理视频")
-            .setContentText("任务会在后台继续运行")
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setProgress(0, 0, true)
-            .build()
+        val notification = createProgressNotification("任务会在后台继续运行", null)
 
         return when {
             Build.VERSION.SDK_INT >= 35 -> ForegroundInfo(
