@@ -485,10 +485,27 @@ class VideoProcessingCoordinator(context: Context) {
         }
         if (thermalProtection && Build.VERSION.SDK_INT >= 29) {
             val pm = app.getSystemService(Context.POWER_SERVICE) as PowerManager
-            while (pm.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+            var criticalSince = 0L
+
+            // Android's SEVERE level is a performance/thermal advisory, not proof
+            // that the handset is dangerously hot. Ignore short spikes and only
+            // yield when CRITICAL has remained active for at least five seconds.
+            while (true) {
+                val thermalStatus = pm.currentThermalStatus
+                if (thermalStatus < PowerManager.THERMAL_STATUS_CRITICAL) break
+
                 currentCoroutineContext().ensureActive()
-                onStatus("设备温度过高，正在自动等待降温。系统热保护不会被绕过。")
-                delay(1_000L)
+                if (criticalSince == 0L) criticalSince = SystemClock.elapsedRealtime()
+                if (SystemClock.elapsedRealtime() - criticalSince >= 5_000L) {
+                    onStatus("系统持续报告临界温控等级，已暂停等待降温。")
+                    while (pm.currentThermalStatus >= PowerManager.THERMAL_STATUS_CRITICAL) {
+                        currentCoroutineContext().ensureActive()
+                        delay(1_000L)
+                    }
+                    onStatus("温控等级已恢复，继续处理。")
+                    break
+                }
+                delay(500L)
             }
         }
         currentCoroutineContext().ensureActive()
